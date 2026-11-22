@@ -4,8 +4,10 @@
 import {
   atom,
   Badge,
+  Box,
   Button,
   Callout,
+  Card,
   EmptyState,
   Heading,
   Input,
@@ -27,12 +29,13 @@ import {
   type Tone
 } from 'orca'
 import { MAX_RESOLUTION, type AgentRow, type AgentState, type Checks, type FlowRow, type Group, type NeedRow, type Review, type ShipRow, type TaskRow } from './model'
+import { layoutOverview, type OverviewEdge, type OverviewNode } from './overview'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import { siteGroup, type SiteRow, type SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
-const tab = atom('tab', 'queue', { persist: 'plugin' })
+const tab = atom('tab', 'overview', { persist: 'plugin' })
 
 // Answering a gate: what is typed per gate, the answer awaiting confirmation, and how sending went.
 const drafts = atom<Record<string, string>>({})
@@ -318,6 +321,73 @@ function Flows({ s }: { s: Snapshot }) {
   )
 }
 
+const NODE_ICON = { owner: 'star', bot: 'bot', worker: 'agent', pr: 'branch' } as const
+
+function DiagramNode({ n, edge }: { n: OverviewNode; edge?: OverviewEdge }) {
+  const nav = n.nav
+  const press = !nav ? undefined : 'url' in nav ? () => void shell.openExternal(nav.url).catch(() => undefined) : go(nav.worktreeId, nav.address)
+  return (
+    <Row gap="xs" align="center">
+      {/* Indent by tier; the hook shows the edge from the node above it, amber when it waits on you. */}
+      {n.tier > 1 ? <Box width={(n.tier - 1) * 16} /> : null}
+      {edge ? (
+        <Text size="xs" tone={edge.waiting ? 'warning' : undefined} muted={!edge.waiting}>
+          └
+        </Text>
+      ) : null}
+      {press ? (
+        <Button size="xs" variant="outline" tone={n.tone} icon={NODE_ICON[n.kind]} onPress={press}>
+          {n.label}
+        </Button>
+      ) : (
+        <Badge tone={n.tone}>{n.label}</Badge>
+      )}
+      {n.sub ? (
+        <Text size="xs" tone={n.waiting ? 'warning' : undefined} muted={!n.waiting} truncate>
+          {n.sub}
+        </Text>
+      ) : null}
+    </Row>
+  )
+}
+
+function Overview({ s }: { s: Snapshot }) {
+  if (!s.overview.length)
+    return (
+      <Stack gap="md">
+        <SourceError text={s.errors.bots} />
+        <EmptyState title="No bots yet" description="Bots, the workers they start and their pull requests show here." icon="bot" />
+      </Stack>
+    )
+  const { nodes, edges } = layoutOverview(s.overview, s.ship)
+  const into = new Map(edges.map((e) => [e.to, e]))
+  return (
+    <Stack gap="md">
+      <SourceError text={s.errors.bots} />
+      <Box border radius="md" padding="sm" maxHeight={480} scroll="y" gap="xs">
+        {nodes.map((n) => (
+          <DiagramNode n={n} edge={into.get(n.id)} />
+        ))}
+      </Box>
+      {s.overview.map((b) => (
+        <Card title={b.name} description={b.doing}>
+          <Stack gap="xs">
+            <Row gap="xs" wrap>
+              <Badge tone={b.needsYou ? 'warning' : 'neutral'}>{b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`}</Badge>
+              <Badge tone="neutral">{`${b.workers.length} worker${b.workers.length === 1 ? '' : 's'}`}</Badge>
+            </Row>
+            {b.lastSaid ? (
+              <Text size="xs" muted truncate>
+                {`Last said: ${b.lastSaid}`}
+              </Text>
+            ) : null}
+          </Stack>
+        </Card>
+      ))}
+    </Stack>
+  )
+}
+
 function counts(items: AgentRow[]): string {
   const n = (st: AgentState) => items.filter((a) => a.state === st).length
   return (['working', 'waiting', 'errored', 'idle'] as const)
@@ -494,6 +564,9 @@ export default function Panel() {
       <SourceError text={s.errors.orca} />
       {s.orcaAt ? (
         <Tabs label="View" defaultValue={read(tab)} onChange={(v) => set(tab, v)}>
+          <Tab value="overview" label="Overview" icon="layers">
+            <Overview s={s} />
+          </Tab>
           <Tab value="queue" label={`Queue · ${s.needsYou.length}`} icon="flag">
             <Queue s={s} />
           </Tab>

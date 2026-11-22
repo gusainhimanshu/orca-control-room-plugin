@@ -28,6 +28,7 @@ import {
   type RawWorktree,
   type RunData
 } from './model'
+import { buildOverview } from './overview'
 import { resolveTool } from './platform'
 import { emptySnapshot, type Snapshot } from './protocol'
 import { nextSiteRows, parseSites, ping, siteAlarms, siteNotice } from './sites'
@@ -121,16 +122,19 @@ export default function activate(orca: OrcaWorkerApi): void {
       // Flows: the last messages across every mailbox. The concise view only previews bodies.
       let flows = snap.flows
       let flowsError: string | undefined
+      let messages: RawMessage[] = []
+      const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
       try {
         const inbox = await orcaRead<{ messages: RawMessage[] }>(bin, 'orchestration inbox', ['--limit', String(FLOW_LIMIT)])
-        const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
-        flows = buildFlows(inbox.messages ?? [], workers, products, titles)
+        messages = inbox.messages ?? []
+        flows = buildFlows(messages, workers, products, titles)
       } catch (e) {
         flowsError = message(e)
       }
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
-      publish({ orcaAt: Date.now(), office, flows, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
+      const overview = buildOverview({ items, workers, office, messages, taskTitles: titles })
+      publish({ orcaAt: Date.now(), office, flows, overview, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {

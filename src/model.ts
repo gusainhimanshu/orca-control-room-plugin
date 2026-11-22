@@ -32,7 +32,15 @@ export type RawMessage = {
   payload?: { taskId?: string; dispatchId?: string } | null
 }
 export type RawDecision = { question?: string; replies?: { label?: string; recommended?: boolean }[] }
-export type RawItemLink = { kind?: string; ref?: string; latest?: string; pr?: { ref?: string; worktreeId?: string } | null }
+export type RawItemLink = {
+  kind?: string
+  ref?: string
+  latest?: string
+  /** A Dispatch link's task title and state. */
+  title?: string
+  state?: string
+  pr?: { ref?: string; worktreeId?: string; url?: string; state?: string; checks?: string | null; title?: string } | null
+}
 /** One row of `orca bot item list --json` (status words as --json prints them: needs_you, in_progress, ...). */
 export type RawItem = {
   uid: string

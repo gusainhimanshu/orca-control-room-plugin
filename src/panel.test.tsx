@@ -68,7 +68,10 @@ async function withGate(s: Snapshot, answer: (input: unknown) => { ok: boolean; 
       navigate: (input) => (navigated.push(input), { ok: true })
     }
   })
-  return { view: await mount(panel, { host }), sent, navigated }
+  const view = await mount(panel, { host })
+  // Overview is the first tab; these tests are about the Queue.
+  await view.select({ role: 'tablist' }, 'queue')
+  return { view, sent, navigated }
 }
 
 test('shows the queue, office and ship board; pressing an agent navigates', async () => {
@@ -80,6 +83,7 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
     }
   })
   const view = await mount(panel, { host })
+  await view.select({ role: 'tablist' }, 'queue')
   assert.ok(view.find({ text: 'Merge now?' }))
   // Options are labels, not answer buttons.
   assert.ok(view.find({ text: 'yes (recommended)' }))
@@ -115,6 +119,34 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   assert.ok(view.find({ text: 'CLI down' }))
   assert.deepEqual(view.errors, [])
   assert.deepEqual(view.refusals, [])
+  await view.unmount()
+})
+
+test('Overview: the diagram puts bots under you and workers under bots; pressing a node navigates', async () => {
+  const s: Snapshot = {
+    ...snap,
+    overview: [
+      {
+        name: 'Helper',
+        doing: 'Build login',
+        open: 2,
+        needsYou: 1,
+        lastSaid: 'Opened the PR.',
+        worktreeId: null,
+        address: null,
+        workers: [{ key: 'ctx_a', label: 'Login worker', state: 'working', worktreeId: 'r1::/a', address: 'structworker_a', prs: [] }],
+        prs: []
+      }
+    ]
+  }
+  const { view, navigated } = await withGate(s)
+  await view.select({ role: 'tablist' }, 'overview')
+  assert.ok(view.find({ text: 'You' }))
+  assert.ok(view.find({ text: '1 waiting on you' }))
+  assert.ok(view.find({ text: 'Last said: Opened the PR.' }))
+  await view.press({ role: 'button', text: 'Login worker' })
+  assert.deepEqual(navigated, [{ worktreeId: 'r1::/a', address: 'structworker_a' }])
+  assert.deepEqual(view.errors, [])
   await view.unmount()
 })
 
@@ -197,7 +229,7 @@ test('a snapshot persisted by an older version (no flows, no sites) draws every 
   // The restarted worker cannot answer yet, so only the persisted snapshot is drawn.
   const host = mockHost({ requests: { 'snapshot.get': () => Promise.reject(new Error('worker starting')) } })
   const view = await mount(panel, { host, persisted: { plugin: { snapshot: old } } })
-  for (const t of ['queue', 'office', 'flows', 'ship']) await view.select({ role: 'tablist' }, t)
+  for (const t of ['overview', 'queue', 'office', 'flows', 'ship']) await view.select({ role: 'tablist' }, t)
   assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
   assert.deepEqual(view.errors, [])
   await view.unmount()

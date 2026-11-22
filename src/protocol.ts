@@ -1,5 +1,6 @@
 // The panel <-> worker contract, declared once: src/panel.tsx and src/worker.ts both read it.
 import type { AgentRow, FlowRow, Group, NeedRow, ShipRow, TaskRow } from './model'
+import type { OverviewBot } from './overview'
 import type { SiteRow } from './sites'
 
 /** Each source's last error, or absent when its last read worked. */
@@ -16,6 +17,8 @@ export type Snapshot = {
   /** Recent inter-agent messages, newest first within each product. */
   flows: Group<FlowRow>[]
   ship: ShipRow[]
+  /** Who hands work to whom: each bot, the workers it started and their pull requests. */
+  overview: OverviewBot[]
   /** 0 until the first site round finishes (it runs even when no sites are set). */
   sitesAt: number
   /** One row per site in the "Sites to ping" setting; empty when it is empty. */
@@ -37,6 +40,7 @@ export const emptySnapshot = (): Snapshot => ({
   office: [],
   flows: [],
   ship: [],
+  overview: [],
   sitesAt: 0,
   sites: [],
   siteErrors: [],

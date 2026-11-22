@@ -1,6 +1,6 @@
 # Control Room
 
-A control room for Orca's right sidebar: what is waiting on you, every agent in every workspace,
+A control room for Orca's right sidebar: who hands work to whom, what is waiting on you, every agent in every workspace,
 each product's pull requests and CI, grouped by product (Orca project), and whether the sites you
 list are up.
 
@@ -14,6 +14,16 @@ with the site's URL.
 
 ## Views
 
+- **Overview** (first tab): a diagram of who hands work to whom, top to bottom: **You** → each bot
+  → the workers it started → their pull requests, one node per row, indented by tier, in a box
+  that scrolls when tall. A bot's workers come from the Dispatches its open items link and the
+  Dispatches it mailed; a pull request hangs off the worker of the item that links it (else off
+  the bot). Pull requests are coloured by CI (the item link's checks, else the Ship board's).
+  Amber marks what waits on you: a bot with *needs you* items, a worker waiting on input. Press a
+  node to go there: a bot's chat or a worker's terminal or workspace, or a PR in your browser.
+  Below it, one card per bot: what it is doing now, open items, workers, and the first line of the
+  last thing it said. Built only from the reads below; drawn with Orca's components (a components
+  panel cannot draw SVG), so it follows the theme and has no motion.
 - **Queue**: *Needs you* first: every bot's items with status *needs you*, with the bot's ask and
   its options. Orca offers no way to answer a bot item for you outside its chat, so when Orca shows
   the bot's chat, each option is a button that **opens that chat** (it sends nothing); otherwise the
@@ -135,17 +145,19 @@ No build step and no dependencies.
 ```sh
 orca plugin validate .
 orca plugin check .
-orca plugin test .          # model, platform, sites and panel tests (invented data, no real requests)
+orca plugin test .          # model, overview, platform, sites and panel tests (invented data, no real requests)
 npx -y -p typescript@5.9.3 tsc -p . --noEmit  # type check
 ```
 
 CI (`.github/workflows/ci.yml`, Ubuntu and Windows, Node LTS) runs without Orca: the type check
-against a copy of Orca's generated types in `ci/orca-types/`, and the pure tests (model, platform,
-sites) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
+against a copy of Orca's generated types in `ci/orca-types/`, and the pure tests (model, overview,
+platform, sites) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
 `assert`. The panel test needs Orca's `mount()`, so it runs only under `orca plugin test`. After
 upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci/orca-types/`.
 
 - `src/model.ts`: pure data → view-model functions (tested in `src/model.test.ts`).
+- `src/overview.ts`: the Overview's bots → workers → PRs model and its layout into tiers, rows and
+  edges (tested in `src/overview.test.ts`).
 - `src/sites.ts`: parsing *Sites to ping*, the ping itself (fetch injected) and up/degraded/down
   (tested in `src/sites.test.ts`).
 - `src/sources.ts`: the command allow-list.
@@ -169,6 +181,6 @@ Windows notes:
 
 ## Not yet
 
-Answering a bot item from the panel (Orca has no owner path for it yet), network calls beyond the site pings, flow diagrams, title-emoji parsing, an
+Answering a bot item from the panel (Orca has no owner path for it yet), network calls beyond the site pings, coordinators that are not bots in the Overview, title-emoji parsing, an
 external state file, an overlaps view. Agents Orca only remembers (no terminal or chat left)
 are not shown.
