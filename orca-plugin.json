@@ -59,7 +59,7 @@
       {
         "key": "sites",
         "title": "Sites to ping",
-        "description": "Name=https://url entries, separated by commas or new lines. Each is requested once a minute (5 s timeout, no cookies). Empty: no Sites section and no network requests.",
+        "description": "Name=https://url or Product:Name=https://url entries, separated by commas or new lines. A site whose Product is an Orca project shows with that product on Ship. Each is requested once a minute (5 s timeout, no cookies). Empty: no Sites section and no network requests.",
         "type": "string",
         "multiline": true,
         "default": ""

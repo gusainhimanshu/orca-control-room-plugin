@@ -24,7 +24,7 @@ import {
 } from 'orca'
 import type { AgentRow, AgentState, Checks, FlowRow, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
-import type { SiteRow, SiteState } from './sites'
+import { siteGroup, type SiteRow, type SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
@@ -251,7 +251,7 @@ function Office({ s }: { s: Snapshot }) {
   )
 }
 
-function ShipCard({ r }: { r: ShipRow }) {
+function ShipCard({ r, sites }: { r: ShipRow; sites: SiteRow[] }) {
   const run = r.latestRun
   return (
     <Stack gap="xs">
@@ -289,6 +289,7 @@ function ShipCard({ r }: { r: ShipRow }) {
           {r.repo} · no open pull requests
         </Text>
       )}
+      <SiteList label={`${r.product} sites`} rows={sites} />
     </Stack>
   )
 }
@@ -298,50 +299,77 @@ function siteDetail(r: SiteRow): string {
   return `${answer} · ${r.ms} ms`
 }
 
-function Sites({ s }: { s: Snapshot }) {
-  if (!s.sites.length && !s.siteErrors.length) return null
-  return (
-    <Stack gap="xs">
-      <ProductHeader name="Sites" note={`${s.sites.filter((r) => r.state === 'up').length} of ${s.sites.length} up`} />
-      {s.siteErrors.map((e) => (
-        <SourceError text={`Sites to ping: ${e}`} />
+function SiteList({ label, rows }: { label: string; rows: SiteRow[] }) {
+  return rows.length ? (
+    <List label={label}>
+      {rows.map((r) => (
+        <ListItem title={r.name} icon="globe" onPress={() => void shell.openExternal(r.url).catch(() => undefined)}>
+          <Row gap="xs" wrap align="center">
+            <Badge tone={SITE[r.state].tone}>{SITE[r.state].label}</Badge>
+            <Text size="xs" muted>
+              {siteDetail(r)}
+            </Text>
+            <Text size="xs" muted>
+              since
+            </Text>
+            <RelativeTime at={r.since} muted />
+          </Row>
+        </ListItem>
       ))}
-      {s.sites.length ? (
-        <List label="Sites">
-          {s.sites.map((r) => (
-            <ListItem title={r.name} icon="globe" onPress={() => void shell.openExternal(r.url).catch(() => undefined)}>
-              <Row gap="xs" wrap align="center">
-                <Badge tone={SITE[r.state].tone}>{SITE[r.state].label}</Badge>
-                <Text size="xs" muted>
-                  {siteDetail(r)}
-                </Text>
-                <Text size="xs" muted>
-                  since
-                </Text>
-                <RelativeTime at={r.since} muted />
-              </Row>
-            </ListItem>
+    </List>
+  ) : null
+}
+
+const upNote = (rows: SiteRow[]) => `${rows.filter((r) => r.state === 'up').length} of ${rows.length} up`
+
+/** Sites in the plain "Sites" group, then one group per product that has sites but no Ship row. */
+function Sites({ s, shown }: { s: Snapshot; shown: Set<string> }) {
+  const groups = new Map<string, SiteRow[]>()
+  for (const r of s.sites) {
+    const g = siteGroup(r, s.projects)
+    if (g && shown.has(g)) continue
+    groups.set(g ?? '', [...(groups.get(g ?? '') ?? []), r])
+  }
+  const plain = groups.get('') ?? []
+  groups.delete('')
+  return (
+    <Stack gap="md">
+      {plain.length || s.siteErrors.length ? (
+        <Stack gap="xs">
+          <ProductHeader name="Sites" note={upNote(plain)} />
+          {s.siteErrors.map((e) => (
+            <SourceError text={`Sites to ping: ${e}`} />
           ))}
-        </List>
+          <SiteList label="Sites" rows={plain} />
+        </Stack>
       ) : null}
+      {[...groups].map(([product, rows]) => (
+        <Stack gap="xs">
+          <ProductHeader name={product} note={upNote(rows)} />
+          <SiteList label={`${product} sites`} rows={rows} />
+        </Stack>
+      ))}
     </Stack>
   )
 }
 
 function Ship({ s }: { s: Snapshot }) {
+  const ship = s.ghAt ? s.ship : []
+  const shown = new Set(ship.map((r) => r.product))
+  const sitesOf = (product: string) => s.sites.filter((r) => siteGroup(r, s.projects) === product)
   if (!s.ghAt)
     return (
       <Stack gap="md">
-        <Sites s={s} />
+        <Sites s={s} shown={shown} />
         <Skeleton lines={4} label="Reading GitHub" />
       </Stack>
     )
   return (
     <Stack gap="md">
-      <Sites s={s} />
+      <Sites s={s} shown={shown} />
       <SourceError text={s.errors.gh} />
-      {s.ship.length ? (
-        s.ship.map((r) => <ShipCard r={r} />)
+      {ship.length ? (
+        ship.map((r) => <ShipCard r={r} sites={sitesOf(r.product)} />)
       ) : (
         <EmptyState
           title="No GitHub repos to watch"

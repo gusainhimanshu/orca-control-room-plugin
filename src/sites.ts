@@ -2,7 +2,8 @@
 // Pure parsing and classification, plus `ping`, which takes the fetch function so tests stay offline.
 import type { Alarm } from './model'
 
-export type Site = { name: string; url: string }
+/** `product`: the part before `:` in `Product:Name=url`, as written; absent for plain `Name=url`. */
+export type Site = { name: string; url: string; product?: string }
 export type SiteState = 'up' | 'degraded' | 'down'
 /** `status` 0 means no HTTP answer (timeout, DNS or connection error); `error` then says why. */
 export type PingResult = { status: number; ms: number; error?: string }
@@ -21,7 +22,10 @@ export const TIMEOUT_MS = 5_000
 export const SLOW_MS = 2_000
 const MAX_REDIRECTS = 3
 
-/** `Name=https://url` entries separated by commas or new lines. Bad entries come back as errors. */
+/**
+ * `Name=https://url` or `Product:Name=https://url` entries separated by commas or new lines.
+ * Bad entries come back as errors.
+ */
 export function parseSites(text: string): { sites: Site[]; errors: string[] } {
   const sites: Site[] = []
   const errors: string[] = []
@@ -30,9 +34,12 @@ export function parseSites(text: string): { sites: Site[]; errors: string[] } {
     const entry = raw.trim()
     if (!entry) continue
     const eq = entry.indexOf('=')
-    const name = entry.slice(0, Math.max(eq, 0)).trim()
-    if (!name) {
-      errors.push(`"${entry}": write it as Name=https://url`)
+    const label = entry.slice(0, Math.max(eq, 0))
+    const colon = label.indexOf(':')
+    const product = colon >= 0 ? label.slice(0, colon).trim() : ''
+    const name = label.slice(colon + 1).trim()
+    if (!name || (colon >= 0 && !product)) {
+      errors.push(`"${entry}": write it as Name=https://url or Product:Name=https://url`)
       continue
     }
     let url: URL | null = null
@@ -45,10 +52,10 @@ export function parseSites(text: string): { sites: Site[]; errors: string[] } {
       errors.push(`"${entry}": only http:// and https:// URLs`)
     } else if (url.username || url.password) {
       errors.push(`"${entry}": no user name or password in the URL`)
-    } else if (sites.some((s) => s.name === name)) {
+    } else if (sites.some((s) => s.name === name && (s.product ?? '') === product)) {
       errors.push(`"${entry}": the name ${name} is used twice`)
     } else {
-      sites.push({ name, url: url.href })
+      sites.push(product ? { product, name, url: url.href } : { name, url: url.href })
     }
   }
   return { sites, errors }
@@ -106,7 +113,7 @@ export function nextSiteRows(prev: SiteRow[], sites: Site[], results: PingResult
   return sites.map((site, i) => {
     const r = results[i]
     const state = classify(r)
-    const p = prev.find((x) => x.name === site.name && x.url === site.url)
+    const p = prev.find((x) => x.name === site.name && x.url === site.url && x.product === site.product)
     const same = p?.state === state
     return {
       ...site,
@@ -131,6 +138,15 @@ export function siteAlarms(rows: SiteRow[]): Alarm[] {
     else if (r.was === 'down') out.push({ key: `site:${r.url}:back`, text: `${r.name} is back ${r.state === 'up' ? 'up' : '(degraded)'}` })
   }
   return out
+}
+
+/**
+ * Which group each site shows in on Ship: the Orca project its product names (matched ignoring
+ * case, spelled as the project is), else null for the plain "Sites" group.
+ */
+export function siteGroup(site: Pick<Site, 'product'>, projects: readonly string[]): string | null {
+  const want = site.product?.toLowerCase()
+  return (want && projects.find((p) => p.toLowerCase() === want)) || null
 }
 
 export function siteNotice(fresh: Alarm[]): { title: string; body: string } | null {

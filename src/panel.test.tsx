@@ -39,7 +39,8 @@ const snap: Snapshot = {
   ship: [{ product: 'Alpha', repo: 'acme/alpha', prs: [], latestRun: null, error: null }],
   sitesAt: Date.now(),
   sites: [{ name: 'Shop', url: 'https://shop.example.com/', state: 'down', status: 503, ms: 42, error: null, since: 1, was: 'up' }],
-  siteErrors: ['"oops": write it as Name=https://url']
+  siteErrors: ['"oops": write it as Name=https://url'],
+  projects: ['Alpha']
 }
 
 test('shows the queue, office and ship board; pressing an agent navigates', async () => {
@@ -86,6 +87,33 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   assert.ok(view.find({ text: 'CLI down' }))
   assert.deepEqual(view.errors, [])
   assert.deepEqual(view.refusals, [])
+  await view.unmount()
+})
+
+test('a Product:Name site shows with its product on Ship; an unknown product stays under Sites', async () => {
+  const row = { url: 'https://x.example.com/', state: 'up' as const, status: 200, ms: 5, error: null, since: 1, was: null }
+  const host = mockHost({
+    requests: {
+      'snapshot.get': () => ({
+        ...snap,
+        siteErrors: [],
+        projects: ['Alpha', 'Beta'],
+        sites: [
+          { ...row, product: 'alpha', name: 'Docs' },
+          { ...row, product: 'Beta', name: 'Status' },
+          { ...row, product: 'Nope', name: 'Blog' }
+        ]
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+  await view.select({ role: 'tablist' }, 'ship')
+  assert.ok(view.find({ role: 'list', label: 'Alpha sites' }))
+  // Beta has no GitHub repo here, so it gets a card of its own.
+  assert.ok(view.find({ role: 'list', label: 'Beta sites' }))
+  assert.ok(view.find({ role: 'list', label: 'Sites' }))
+  assert.ok(view.find({ label: 'Blog' }))
+  assert.deepEqual(view.errors, [])
   await view.unmount()
 })
 

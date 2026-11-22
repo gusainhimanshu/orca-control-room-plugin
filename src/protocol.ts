@@ -22,6 +22,8 @@ export type Snapshot = {
   sites: SiteRow[]
   /** Entries of that setting that could not be used, each with the reason. */
   siteErrors: string[]
+  /** Every Orca project's name: a `Product:Name=url` site whose product is one of these shows in its group. */
+  projects: string[]
   errors: SourceErrors
 }
 
@@ -36,6 +38,7 @@ export const emptySnapshot = (): Snapshot => ({
   sitesAt: 0,
   sites: [],
   siteErrors: [],
+  projects: [],
   errors: {}
 })
 

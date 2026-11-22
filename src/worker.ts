@@ -127,7 +127,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       }
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
-      publish({ orcaAt: Date.now(), office, flows, ...queue, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
+      publish({ orcaAt: Date.now(), office, flows, ...queue, projects: [...new Set(products.values())], errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {

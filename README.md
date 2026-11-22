@@ -26,7 +26,9 @@ in your browser (Orca asks first); so does a site row, with the site's URL.
   latest GitHub Actions run (passed / failed / running). At the top, when *Sites to ping* is set,
   a **Sites** group: each site as *up* (2xx/3xx), *degraded* (4xx, or slower than 2 s) or *down*
   (5xx, timeout, DNS or connection error), with its response time and since when it has been so.
-  Bad entries in the setting show inline with the reason.
+  A site written as `Product:Name=url` whose product is an Orca project shows in that product's
+  card instead (or in a card of its own when the product has no GitHub repo); the rest stay in
+  **Sites**. Bad entries in the setting show inline with the reason.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
   past the threshold, or errors; and one when a site goes down, and one when it comes back.
   Already-announced events are remembered in plugin storage.
@@ -88,7 +90,7 @@ in its view; the rest of the panel keeps working.
 | Notifications (stuck agents, sites going down or coming back) | on |
 | Stuck threshold (minutes) | 15 |
 | Repos to watch on the Ship board (`owner/name`, comma separated) | empty = every GitHub repo behind your Orca projects |
-| Sites to ping (`Name=https://url`, comma or newline separated, e.g. `Shop=https://shop.example.com`) | empty = no Sites group and no requests |
+| Sites to ping (`Name=https://url` or `Product:Name=https://url`, comma or newline separated, e.g. `Shop=https://shop.example.com, Alpha:Docs=https://docs.example.com`) | empty = no Sites group and no requests |
 | Orca CLI path | empty = find it automatically |
 
 ## Install
@@ -145,5 +147,5 @@ Windows notes:
 ## Not yet
 
 Acting from the panel, network calls beyond the site pings, flow diagrams, title-emoji parsing, an
-external state file, an overlaps view, mapping a site to a product. Agents Orca only remembers (no terminal or chat left)
+external state file, an overlaps view. Agents Orca only remembers (no terminal or chat left)
 are not shown.
