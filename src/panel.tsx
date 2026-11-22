@@ -29,18 +29,19 @@ import {
   type PanelContext,
   type Tone
 } from 'orca'
-import { MAX_RESOLUTION, type AgentRow, type AgentState, type Checks, type FlowRow, type Group, type NeedRow, type Review, type ShipRow, type TaskRow } from './model'
-import { layoutOverview, type OverviewEdge, type OverviewNode } from './overview'
+import { MAX_RESOLUTION, running, type AgentRow, type AgentState, type Checks, type FlowRow, type Group, type NeedRow, type PrRow, type Review, type ShipRow, type TaskRow } from './model'
+import { layoutOverview, type OverviewEdge, type OverviewBot, type OverviewNode, type OverviewWorker } from './overview'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import { siteGroup, type SiteRow, type SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
 const tab = atom('tab', 'overview', { persist: 'plugin' })
-// Collapsed groups as 'tab:product' → true; absent means expanded. Stale products are just ignored.
+// Groups the user opened (false) or closed (true) as 'tab:product'; absent means collapsed, the default
+// since 0.6.0 (0.5.0 stored only `true`, which reads the same). Stale products are just ignored.
 const collapsed = atom<Record<string, boolean>>('collapsed', {}, { persist: 'plugin' })
 const asCollapsed = (v: unknown): Record<string, boolean> =>
-  v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, x]) => x === true)) : {}
+  v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === 'boolean')) : {}
 
 // Answering a gate: what is typed per gate, the answer awaiting confirmation, and how sending went.
 const drafts = atom<Record<string, string>>({})
@@ -106,25 +107,49 @@ type Alert = { tone: 'warning' | 'danger'; text: string } | null
 /** The worse of two alerts. */
 const worst = (...a: Alert[]): Alert => a.find((x) => x?.tone === 'danger') ?? a.find((x) => x) ?? null
 
-/** A collapsible product group; collapsed, it keeps its note and is outlined amber/red when something inside waits or fails. */
-function ProductGroup({ tab, name, note, alert, children }: { tab: string; name: string; note: string; alert?: Alert; children?: OrcaNode }) {
+type GroupProps = {
+  tab: string
+  name: string
+  note: string
+  alert?: Alert
+  /** What a collapsed group still shows (only what is running); null shows the header alone. */
+  preview?: OrcaNode
+  /** Rows the preview leaves out, said as "+N more". */
+  hidden?: number
+  children?: OrcaNode
+}
+
+/** A product group, collapsed until the user opens it; collapsed, it is outlined amber/red when something inside waits or fails. */
+function ProductGroup({ tab, name, note, alert, preview, hidden = 0, children }: GroupProps) {
   const key = `${tab}:${name}`
-  const open = !read(collapsed)[key]
+  const open = read(collapsed)[key] === false
   const marked = !open && alert
+  const description = [note, marked ? alert.text : '', !open && hidden ? `+${hidden} more` : ''].filter(Boolean).join(' · ')
   return (
     // Keyed (testId) on the Collapsible; a component's root element loses its key.
     <Box border={marked ? alert.tone : false} radius="md">
       <Collapsible
         key={key}
         title={name}
-        description={marked ? `${note} · ${alert.text}` : note}
+        description={description}
         open={open}
-        onChange={(o) => update(collapsed, ({ [key]: _old, ...rest }) => (o ? rest : { ...rest, [key]: true }))}
+        onChange={(o) => update(collapsed, ({ [key]: _old, ...rest }) => (o ? { ...rest, [key]: false } : rest))}
       >
         {children}
       </Collapsible>
+      {!open && preview ? (
+        <Box paddingX="sm" paddingY="xs">
+          {preview}
+        </Box>
+      ) : null}
     </Box>
   )
+}
+
+/** A collapsed group's preview: `draw` over only the running rows, and how many it leaves out. */
+function runningOnly<T>(rows: T[], keep: (r: T) => boolean, draw: (rows: T[]) => OrcaNode) {
+  const shown = rows.filter(keep)
+  return { preview: shown.length ? draw(shown) : null, hidden: rows.length - shown.length }
 }
 
 const gateId = (n: NeedRow) => n.key.slice('gate:'.length)
@@ -258,6 +283,16 @@ function NeedItem({ n, canAnswer }: { n: NeedRow; canAnswer: boolean }) {
   )
 }
 
+function TaskList({ label, rows }: { label: string; rows: TaskRow[] }) {
+  return (
+    <List label={label}>
+      {rows.map((t) => (
+        <ListItem title={t.title} description={`${t.status} · ${t.via}`} icon="layers" />
+      ))}
+    </List>
+  )
+}
+
 function Queue({ s }: { s: Snapshot }) {
   return (
     <Stack gap="md">
@@ -278,12 +313,8 @@ function Queue({ s }: { s: Snapshot }) {
       <Heading level={3}>Open work</Heading>
       {s.open.length ? (
         s.open.map((g: Group<TaskRow>) => (
-          <ProductGroup tab="queue" name={g.product} note={`${g.items.length} open`}>
-            <List label={g.product}>
-              {g.items.map((t) => (
-                <ListItem title={t.title} description={`${t.status} · ${t.via}`} icon="layers" />
-              ))}
-            </List>
+          <ProductGroup tab="queue" name={g.product} note={`${g.items.length} open`} {...runningOnly(g.items, running.task, (rows) => <TaskList label={g.product} rows={rows} />)}>
+            <TaskList label={g.product} rows={g.items} />
           </ProductGroup>
         ))
       ) : (
@@ -317,6 +348,16 @@ function FlowItem({ f }: { f: FlowRow }) {
   )
 }
 
+function FlowList({ label, rows }: { label: string; rows: FlowRow[] }) {
+  return (
+    <List label={label}>
+      {rows.map((f) => (
+        <FlowItem f={f} />
+      ))}
+    </List>
+  )
+}
+
 function Flows({ s }: { s: Snapshot }) {
   return (
     <Stack gap="md">
@@ -330,12 +371,9 @@ function Flows({ s }: { s: Snapshot }) {
               name={g.product}
               note={`${g.items.length} messages`}
               alert={waiting ? { tone: 'warning', text: `${waiting} waiting on you` } : null}
+              {...runningOnly(g.items, (f) => running.flow(f, s.orcaAt), (rows) => <FlowList label={g.product} rows={rows} />)}
             >
-              <List label={g.product}>
-                {g.items.map((f) => (
-                  <FlowItem f={f} />
-                ))}
-              </List>
+              <FlowList label={g.product} rows={g.items} />
             </ProductGroup>
           )
         })
@@ -376,6 +414,36 @@ function DiagramNode({ n, edge }: { n: OverviewNode; edge?: OverviewEdge }) {
   )
 }
 
+const WORKER: Record<OverviewWorker['state'], { label: string; tone: Tone }> = { ...STATE, done: { label: 'Done', tone: 'success' } }
+
+function WorkerList({ label, rows }: { label: string; rows: OverviewWorker[] }) {
+  return (
+    <List label={label}>
+      {rows.map((w) => (
+        <ListItem title={w.label} icon="agent" onPress={w.worktreeId ? go(w.worktreeId, w.address) : undefined}>
+          <Badge tone={WORKER[w.state].tone}>{WORKER[w.state].label}</Badge>
+        </ListItem>
+      ))}
+    </List>
+  )
+}
+
+/** A collapsed bot card: what it is doing now and the workers waiting on you or errored. */
+function botPreview(b: OverviewBot) {
+  const busy = b.workers.filter(running.worker)
+  const doing = running.doing(b)
+  return {
+    preview:
+      doing || busy.length ? (
+        <Stack gap="xs">
+          {doing ? <Text size="xs">{`Doing now: ${b.doing}`}</Text> : null}
+          {busy.length ? <WorkerList label={`${b.name} workers`} rows={busy} /> : null}
+        </Stack>
+      ) : null,
+    hidden: b.workers.length - busy.length
+  }
+}
+
 function Overview({ s }: { s: Snapshot }) {
   if (!s.overview.length)
     return (
@@ -395,8 +463,15 @@ function Overview({ s }: { s: Snapshot }) {
         ))}
       </Box>
       {s.overview.map((b) => (
-        <ProductGroup tab="overview" name={b.name} note={b.doing || `${b.open} open`} alert={b.needsYou ? { tone: 'warning', text: `${b.needsYou} need you` } : null}>
+        <ProductGroup
+          tab="overview"
+          name={b.name}
+          note={`${b.open} open`}
+          alert={b.needsYou ? { tone: 'warning', text: `${b.needsYou} need you` } : null}
+          {...botPreview(b)}
+        >
           <Stack gap="xs">
+            <Text size="xs">{`Doing now: ${b.doing}`}</Text>
             <Row gap="xs" wrap>
               <Badge tone={b.needsYou ? 'warning' : 'neutral'}>{b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`}</Badge>
               <Badge tone="neutral">{`${b.workers.length} worker${b.workers.length === 1 ? '' : 's'}`}</Badge>
@@ -406,6 +481,7 @@ function Overview({ s }: { s: Snapshot }) {
                 {`Last said: ${b.lastSaid}`}
               </Text>
             ) : null}
+            {b.workers.length ? <WorkerList label={`${b.name} workers`} rows={b.workers} /> : null}
           </Stack>
         </ProductGroup>
       ))}
@@ -434,30 +510,42 @@ function Office({ s }: { s: Snapshot }) {
   return (
     <Stack gap="md">
       {s.office.map((g) => (
-        <ProductGroup tab="office" name={g.product} note={counts(g.items)} alert={officeAlert(g.items)}>
-          <List label={g.product}>
-            {g.items.map((a) => (
-              <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
-                <Stack gap="xs">
-                  <Row gap="xs" wrap align="center">
-                    <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
-                    {a.since ? <RelativeTime at={a.since} muted /> : null}
-                    <Text size="xs" muted truncate>
-                      {a.workspace}
-                    </Text>
-                  </Row>
-                  {a.detail ? (
-                    <Text size="xs" muted truncate>
-                      {a.detail}
-                    </Text>
-                  ) : null}
-                </Stack>
-              </ListItem>
-            ))}
-          </List>
+        <ProductGroup
+          tab="office"
+          name={g.product}
+          note={counts(g.items)}
+          alert={officeAlert(g.items)}
+          {...runningOnly(g.items, running.agent, (rows) => <AgentList label={g.product} rows={rows} />)}
+        >
+          <AgentList label={g.product} rows={g.items} />
         </ProductGroup>
       ))}
     </Stack>
+  )
+}
+
+function AgentList({ label, rows }: { label: string; rows: AgentRow[] }) {
+  return (
+    <List label={label}>
+      {rows.map((a) => (
+        <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
+          <Stack gap="xs">
+            <Row gap="xs" wrap align="center">
+              <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
+              {a.since ? <RelativeTime at={a.since} muted /> : null}
+              <Text size="xs" muted truncate>
+                {a.workspace}
+              </Text>
+            </Row>
+            {a.detail ? (
+              <Text size="xs" muted truncate>
+                {a.detail}
+              </Text>
+            ) : null}
+          </Stack>
+        </ListItem>
+      ))}
+    </List>
   )
 }
 
@@ -468,6 +556,26 @@ const siteAlert = (rows: SiteRow[]): Alert => {
   return worst(n('down') ? { tone: 'danger', text: `${n('down')} down` } : null, n('degraded') ? { tone: 'warning', text: `${n('degraded')} degraded` } : null)
 }
 
+function RunBadge({ run }: { run: ShipRow['latestRun'] }) {
+  return <Badge tone={!run ? 'neutral' : run.result === 'pass' ? 'success' : run.result === 'fail' ? 'danger' : 'warning'}>{runText(run)}</Badge>
+}
+
+function PrList({ label, rows }: { label: string; rows: PrRow[] }) {
+  return (
+    <List label={label}>
+      {rows.map((p) => (
+        <ListItem title={`#${p.number} ${p.title}`} onPress={() => void shell.openExternal(p.url).catch(() => undefined)}>
+          <Row gap="xs" wrap>
+            {p.draft ? <Badge tone="neutral">Draft</Badge> : null}
+            <Badge tone={CHECKS[p.checks].tone}>{CHECKS[p.checks].label}</Badge>
+            <Badge tone={REVIEW[p.review].tone}>{REVIEW[p.review].label}</Badge>
+          </Row>
+        </ListItem>
+      ))}
+    </List>
+  )
+}
+
 function ShipCard({ r, sites }: { r: ShipRow; sites: SiteRow[] }) {
   const run = r.latestRun
   const failing = r.prs.filter((p) => p.checks === 'fail').length
@@ -476,32 +584,38 @@ function ShipCard({ r, sites }: { r: ShipRow; sites: SiteRow[] }) {
     failing ? { tone: 'danger', text: `${failing} PR${failing === 1 ? '' : 's'} failing` } : null,
     siteAlert(sites)
   )
+  // Collapsed: only a running or failed run, PRs whose checks run or fail or that have changes asked, and sites not up.
+  const prs = r.error ? [] : r.prs.filter(running.pr)
+  const down = sites.filter(running.site)
+  const showRun = running.run(run)
+  const shown = prs.length + down.length + (showRun ? 1 : 0)
+  const preview = shown ? (
+    <Stack gap="xs">
+      {showRun ? <RunBadge run={run} /> : null}
+      {prs.length ? <PrList label={`${r.repo} · running or failing`} rows={prs} /> : null}
+      <SiteList label={`${r.product} sites not up`} rows={down} />
+    </Stack>
+  ) : null
+  const total = (r.error ? 0 : r.prs.length) + sites.length + (run ? 1 : 0)
   return (
-    <ProductGroup tab="ship" name={r.product} note={`${runText(run)} · ${r.error ? 'unreadable' : `${r.prs.length} open`}`} alert={alert}>
+    <ProductGroup
+      tab="ship"
+      name={r.product}
+      note={`${runText(run)} · ${r.error ? 'unreadable' : `${r.prs.length} open`}`}
+      alert={alert}
+      preview={preview}
+      hidden={total - shown}
+    >
       <Stack gap="xs">
         <Row justify="between" align="center" wrap>
-          {run ? (
-            <Badge tone={run.result === 'pass' ? 'success' : run.result === 'fail' ? 'danger' : 'warning'}>{runText(run)}</Badge>
-          ) : (
-            <Badge tone="neutral">No runs</Badge>
-          )}
+          <RunBadge run={run} />
         </Row>
         {r.error ? (
           <Text size="xs" tone="warning">
             {r.error}
           </Text>
         ) : r.prs.length ? (
-          <List label={`${r.repo} · ${r.prs.length} open`}>
-            {r.prs.map((p) => (
-              <ListItem title={`#${p.number} ${p.title}`} onPress={() => void shell.openExternal(p.url).catch(() => undefined)}>
-                <Row gap="xs" wrap>
-                  {p.draft ? <Badge tone="neutral">Draft</Badge> : null}
-                  <Badge tone={CHECKS[p.checks].tone}>{CHECKS[p.checks].label}</Badge>
-                  <Badge tone={REVIEW[p.review].tone}>{REVIEW[p.review].label}</Badge>
-                </Row>
-              </ListItem>
-            ))}
-          </List>
+          <PrList label={`${r.repo} · ${r.prs.length} open`} rows={r.prs} />
         ) : (
           <Text size="xs" muted>
             {r.repo} · no open pull requests
@@ -539,7 +653,17 @@ function SiteList({ label, rows }: { label: string; rows: SiteRow[] }) {
   ) : null
 }
 
-const upNote = (rows: SiteRow[]) => `${rows.filter((r) => r.state === 'up').length} of ${rows.length} up`
+/** The plain Sites group: bad entries in the setting (strings), then the sites. */
+function SiteRows({ label, rows }: { label: string; rows: (string | SiteRow)[] }) {
+  return (
+    <Stack gap="xs">
+      {rows.map((e) => (typeof e === 'string' ? <SourceError text={`Sites to ping: ${e}`} /> : null))}
+      <SiteList label={label} rows={rows.filter((r): r is SiteRow => typeof r !== 'string')} />
+    </Stack>
+  )
+}
+
+const upNote =(rows: SiteRow[]) => `${rows.filter((r) => r.state === 'up').length} of ${rows.length} up`
 
 /** Sites in the plain "Sites" group, then one group per product that has sites but no Ship row. */
 function Sites({ s, shown }: { s: Snapshot; shown: Set<string> }) {
@@ -554,17 +678,24 @@ function Sites({ s, shown }: { s: Snapshot; shown: Set<string> }) {
   return (
     <Stack gap="md">
       {plain.length || s.siteErrors.length ? (
-        <ProductGroup tab="ship" name="Sites" note={upNote(plain)} alert={siteAlert(plain)}>
-          <Stack gap="xs">
-            {s.siteErrors.map((e) => (
-              <SourceError text={`Sites to ping: ${e}`} />
-            ))}
-            <SiteList label="Sites" rows={plain} />
-          </Stack>
+        <ProductGroup
+          tab="ship"
+          name="Sites"
+          note={upNote(plain)}
+          alert={siteAlert(plain)}
+          {...runningOnly([...s.siteErrors, ...plain], (r) => typeof r === 'string' || running.site(r), (rows) => <SiteRows label="Sites" rows={rows} />)}
+        >
+          <SiteRows label="Sites" rows={[...s.siteErrors, ...plain]} />
         </ProductGroup>
       ) : null}
       {[...groups].map(([product, rows]) => (
-        <ProductGroup tab="ship" name={product} note={upNote(rows)} alert={siteAlert(rows)}>
+        <ProductGroup
+          tab="ship"
+          name={product}
+          note={upNote(rows)}
+          alert={siteAlert(rows)}
+          {...runningOnly(rows, running.site, (down) => <SiteList label={`${product} sites`} rows={down} />)}
+        >
           <SiteList label={`${product} sites`} rows={rows} />
         </ProductGroup>
       ))}

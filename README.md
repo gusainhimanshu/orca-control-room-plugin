@@ -48,9 +48,20 @@ with the site's URL.
 - **Collapsible groups** (0.5.0): in every tab each group header (a product; a bot on Overview;
   *Sites* on Ship) collapses and expands on a click or with the keyboard. A collapsed header keeps
   its name and summary (*3 open*, the CI run, *2 of 3 up*), and when something inside waits on you,
-  fails or is down it is outlined amber or red and says what (*1 waiting on you*, *1 down*). Groups
-  start expanded; which ones you collapsed is remembered per tab and product across reloads and
-  updates, and a product that is gone is ignored.
+  fails or is down it is outlined amber or red and says what (*1 waiting on you*, *1 down*).
+  Which ones you opened or closed is remembered per tab and product across reloads and updates,
+  and a product that is gone is ignored.
+- **Collapsed by default, showing what runs** (0.6.0): every group starts collapsed unless you
+  opened it before. Under its header a collapsed group still lists its running rows, and says
+  *+N more* when expanding would show more:
+  - *Office*: agents working, waiting on you or errored (idle ones hidden).
+  - *Queue* (Open work): items in progress, dispatched or blocked (planned ones hidden).
+  - *Ship*: pull requests whose checks run or fail, or with changes asked; sites down or degraded;
+    the latest Actions run when it is running or failed.
+  - *Flows*: messages waiting on you and messages from the last 15 minutes.
+  - *Overview* bot cards: what the bot is doing now, and its workers waiting on you or errored.
+
+  When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
   past the threshold, or errors; and one when a site goes down, and one when it comes back.
   Already-announced events are remembered in plugin storage.
@@ -71,7 +82,7 @@ Only a fixed allow-list of commands, run with argument arrays (never a shell), s
 | `orca orchestration task-list --run <id> --json` | open tasks no bot item tracks |
 | `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
 | `orca orchestration worker-list --json` | which product a task or Dispatch works in |
-| `orca orchestration inbox --limit 40 --json` | the Flows view: recent messages across every mailbox (bodies come previewed, never full) |
+| `orca orchestration inbox --limit 40 --full --json` | the Flows view: recent messages across every mailbox and when each was sent (only a body's first line is kept, cut to 120 characters) |
 | `orca orchestration gate-resolve --id <gate> --resolution <text> --json` | **the one write**: only when you confirm an answer to a decision gate (below) |
 
 A bot item's product comes from what it links: a pull request's workspace or repo, or a Dispatch's

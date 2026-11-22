@@ -32,7 +32,7 @@ const snap: Snapshot = {
     {
       product: 'Alpha',
       items: [
-        { key: 'm1', from: 'Paint the door', to: 'coordinator', type: 'question', subject: 'Which colour?', line: 'Red or blue?', waiting: true, worktreeId: 'r1::/w', address: 'structworker_1' }
+        { key: 'm1', from: 'Paint the door', to: 'coordinator', type: 'question', subject: 'Which colour?', line: 'Red or blue?', waiting: true, at: 0, worktreeId: 'r1::/w', address: 'structworker_1' }
       ]
     }
   ],
@@ -82,7 +82,8 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
       navigate: (input) => (navigated.push(input), { ok: true })
     }
   })
-  const view = await mount(panel, { host })
+  // Groups start collapsed; the Ship card was opened before, so it shows everything.
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'ship:Alpha': false } } } })
   await view.select({ role: 'tablist' }, 'queue')
   assert.ok(view.find({ text: 'Merge now?' }))
   // Options are labels, not answer buttons.
@@ -143,7 +144,12 @@ test('Overview: the diagram puts bots under you and workers under bots; pressing
   await view.select({ role: 'tablist' }, 'overview')
   assert.ok(view.find({ text: 'You' }))
   assert.ok(view.find({ text: '1 waiting on you' }))
+  // Collapsed, the card shows what the bot is doing now; opened, everything.
+  assert.ok(view.find({ text: 'Doing now: Build login' }))
+  assert.equal(view.find({ text: 'Last said: Opened the PR.' }), null)
+  await view.toggle({ testId: 'overview:Helper' })
   assert.ok(view.find({ text: 'Last said: Opened the PR.' }))
+  assert.ok(view.find({ role: 'list', label: 'Helper workers' }))
   await view.press({ role: 'button', text: 'Login worker' })
   assert.deepEqual(navigated, [{ worktreeId: 'r1::/a', address: 'structworker_a' }])
   assert.deepEqual(view.errors, [])
@@ -212,7 +218,7 @@ test('a Product:Name site shows with its product on Ship; an unknown product sta
       })
     }
   })
-  const view = await mount(panel, { host })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'ship:Alpha': false, 'ship:Beta': false, 'ship:Sites': false } } } })
   await view.select({ role: 'tablist' }, 'ship')
   assert.ok(view.find({ role: 'list', label: 'Alpha sites' }))
   // Beta has no GitHub repo here, so it gets a card of its own.
@@ -228,7 +234,7 @@ test('a snapshot persisted by an older version (no flows, no sites) draws every 
   void [flows, sites, sitesAt, siteErrors]
   // The restarted worker cannot answer yet, so only the persisted snapshot is drawn.
   const host = mockHost({ requests: { 'snapshot.get': () => Promise.reject(new Error('worker starting')) } })
-  const view = await mount(panel, { host, persisted: { plugin: { snapshot: old } } })
+  const view = await mount(panel, { host, persisted: { plugin: { snapshot: old, collapsed: { 'ship:Alpha': false } } } })
   for (const t of ['overview', 'queue', 'office', 'flows', 'ship']) await view.select({ role: 'tablist' }, t)
   assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
   assert.deepEqual(view.errors, [])
@@ -245,22 +251,22 @@ test('a persisted snapshot that is not an object is discarded', async () => {
 
 const groupOf = (view: Awaited<ReturnType<typeof mount>>, id: string) => view.find({ testId: id })?.props as { open: boolean; description: string }
 
-test('a product group collapses and expands, and the state is persisted per tab', async () => {
+test('groups start collapsed; one expands and collapses, and the state is persisted per tab', async () => {
   const host = mockHost({ requests: { 'snapshot.get': () => snap } })
   const view = await mount(panel, { host })
   await view.select({ role: 'tablist' }, 'office')
-  assert.equal(groupOf(view, 'office:Alpha').open, true)
-  await view.toggle({ testId: 'office:Alpha' })
   assert.equal(groupOf(view, 'office:Alpha').open, false)
   // Collapsed, the header keeps its summary.
   assert.equal(groupOf(view, 'office:Alpha').description, '1 working')
-  assert.deepEqual(view.persisted.plugin.collapsed, { 'office:Alpha': true })
-  // Another tab's group of the same product is its own.
-  await view.select({ role: 'tablist' }, 'queue')
-  assert.equal(groupOf(view, 'queue:Alpha').open, true)
-  await view.select({ role: 'tablist' }, 'office')
   await view.toggle({ testId: 'office:Alpha' })
   assert.equal(groupOf(view, 'office:Alpha').open, true)
+  assert.deepEqual(view.persisted.plugin.collapsed, { 'office:Alpha': false })
+  // Another tab's group of the same product is its own.
+  await view.select({ role: 'tablist' }, 'queue')
+  assert.equal(groupOf(view, 'queue:Alpha').open, false)
+  await view.select({ role: 'tablist' }, 'office')
+  await view.toggle({ testId: 'office:Alpha' })
+  assert.equal(groupOf(view, 'office:Alpha').open, false)
   assert.deepEqual(view.persisted.plugin.collapsed, {})
   assert.deepEqual(view.errors, [])
   await view.unmount()
@@ -291,7 +297,100 @@ test('a collapsed Ship card with a site down is marked red', async () => {
 test('collapsed state an older or broken version stored is ignored', async () => {
   const host = mockHost({ requests: { 'snapshot.get': () => snap } })
   const view = await mount(panel, { host, persisted: { plugin: { collapsed: ['office:Alpha'], tab: 'office' } } })
+  // Read as nothing remembered: the default, collapsed.
+  assert.equal(groupOf(view, 'office:Alpha').open, false)
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+const agent = (key: string, state: 'working' | 'waiting' | 'errored' | 'idle') => ({ ...snap.office[0].items[0], key, title: `Agent ${key}`, state })
+
+test('collapsed, a group shows only its running rows and says how many more there are; expanded, all of them', async () => {
+  const now = Date.now()
+  const flow = snap.flows[0].items[0]
+  const s: Snapshot = {
+    ...snap,
+    orcaAt: now,
+    office: [{ product: 'Alpha', items: [agent('a', 'working'), agent('b', 'errored'), agent('c', 'idle'), agent('d', 'idle')] }],
+    open: [
+      {
+        product: 'Alpha',
+        items: [
+          { key: 't1', title: 'Build it', status: 'in progress', via: 'Helper' },
+          { key: 't2', title: 'Plan it', status: 'planned', via: 'Helper' }
+        ]
+      }
+    ],
+    flows: [
+      {
+        product: 'Alpha',
+        items: [
+          { ...flow, key: 'f1', subject: 'Fresh note', waiting: false, at: now - 60_000 },
+          { ...flow, key: 'f2', subject: 'Old note', waiting: false, at: now - 60 * 60_000 }
+        ]
+      }
+    ],
+    ship: [
+      {
+        product: 'Alpha',
+        repo: 'acme/alpha',
+        latestRun: { name: 'CI', result: 'pass', url: 'u', at: 1 },
+        error: null,
+        prs: [
+          { number: 1, title: 'Red one', url: 'u1', draft: false, checks: 'fail', review: 'none' },
+          { number: 2, title: 'Green one', url: 'u2', draft: false, checks: 'pass', review: 'approved' }
+        ]
+      }
+    ],
+    sites: [],
+    siteErrors: []
+  }
+  const host = mockHost({ requests: { 'snapshot.get': () => s } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office' } } })
+  assert.ok(view.find({ label: 'Agent a' }))
+  assert.ok(view.find({ label: 'Agent b' }))
+  assert.equal(view.find({ label: 'Agent c' }), null)
+  assert.equal(groupOf(view, 'office:Alpha').description, '1 working · 1 errored · 2 idle · 1 errored · +2 more')
+  await view.toggle({ testId: 'office:Alpha' })
+  assert.ok(view.find({ label: 'Agent c' }))
+  assert.ok(view.find({ label: 'Agent d' }))
+  assert.equal(groupOf(view, 'office:Alpha').description, '1 working · 1 errored · 2 idle')
+
+  await view.select({ role: 'tablist' }, 'queue')
+  assert.ok(view.find({ label: 'Build it' }))
+  assert.equal(view.find({ label: 'Plan it' }), null)
+  assert.equal(groupOf(view, 'queue:Alpha').description, '2 open · +1 more')
+
+  await view.select({ role: 'tablist' }, 'flows')
+  assert.ok(view.find({ label: 'Fresh note' }))
+  assert.equal(view.find({ label: 'Old note' }), null)
+
+  await view.select({ role: 'tablist' }, 'ship')
+  assert.ok(view.find({ label: '#1 Red one' }))
+  assert.equal(view.find({ label: '#2 Green one' }), null)
+  // The passing run and the green PR are left out.
+  assert.equal(groupOf(view, 'ship:Alpha').description, 'CI passed · 2 open · 1 PR failing · +2 more')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('collapsed with nothing running, a group shows only its header and summary', async () => {
+  const s: Snapshot = { ...snap, office: [{ product: 'Alpha', items: [agent('c', 'idle'), agent('d', 'idle')] }] }
+  const host = mockHost({ requests: { 'snapshot.get': () => s } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office' } } })
+  assert.equal(view.find({ role: 'list', label: 'Alpha' }), null)
+  assert.equal(groupOf(view, 'office:Alpha').description, '2 idle · +2 more')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a group the user expanded before stays expanded after a reload', async () => {
+  const s: Snapshot = { ...snap, office: [{ product: 'Alpha', items: [agent('c', 'idle')] }] }
+  const host = mockHost({ requests: { 'snapshot.get': () => s } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office', collapsed: { 'office:Alpha': false } } } })
   assert.equal(groupOf(view, 'office:Alpha').open, true)
+  assert.ok(view.find({ label: 'Agent c' }))
+  assert.equal(groupOf(view, 'office:Alpha').description, '1 idle')
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
