@@ -7,7 +7,7 @@ import {
   Box,
   Button,
   Callout,
-  Card,
+  Collapsible,
   EmptyState,
   Heading,
   Input,
@@ -25,6 +25,7 @@ import {
   Tabs,
   Text,
   update,
+  type OrcaNode,
   type PanelContext,
   type Tone
 } from 'orca'
@@ -36,6 +37,10 @@ import { siteGroup, type SiteRow, type SiteState } from './sites'
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
 const tab = atom('tab', 'overview', { persist: 'plugin' })
+// Collapsed groups as 'tab:product' → true; absent means expanded. Stale products are just ignored.
+const collapsed = atom<Record<string, boolean>>('collapsed', {}, { persist: 'plugin' })
+const asCollapsed = (v: unknown): Record<string, boolean> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, x]) => x === true)) : {}
 
 // Answering a gate: what is typed per gate, the answer awaiting confirmation, and how sending went.
 const drafts = atom<Record<string, string>>({})
@@ -55,6 +60,7 @@ const take = (s: Snapshot) => {
 
 export function setup(ctx: PanelContext): void {
   set(snapshot, asSnapshot(read(snapshot)))
+  set(collapsed, asCollapsed(read(collapsed)))
   ctx.subscriptions.push(plugin.on('snapshot', take))
   void plugin.request('snapshot.get').then(take, () => undefined)
 }
@@ -96,14 +102,28 @@ function SourceError({ text }: { text?: string }) {
   ) : null
 }
 
-function ProductHeader({ name, note }: { name: string; note: string }) {
+type Alert = { tone: 'warning' | 'danger'; text: string } | null
+/** The worse of two alerts. */
+const worst = (...a: Alert[]): Alert => a.find((x) => x?.tone === 'danger') ?? a.find((x) => x) ?? null
+
+/** A collapsible product group; collapsed, it keeps its note and is outlined amber/red when something inside waits or fails. */
+function ProductGroup({ tab, name, note, alert, children }: { tab: string; name: string; note: string; alert?: Alert; children?: OrcaNode }) {
+  const key = `${tab}:${name}`
+  const open = !read(collapsed)[key]
+  const marked = !open && alert
   return (
-    <Row gap="xs" align="center" wrap>
-      <Text weight="semibold">{name}</Text>
-      <Text size="xs" muted>
-        {note}
-      </Text>
-    </Row>
+    // Keyed (testId) on the Collapsible; a component's root element loses its key.
+    <Box border={marked ? alert.tone : false} radius="md">
+      <Collapsible
+        key={key}
+        title={name}
+        description={marked ? `${note} · ${alert.text}` : note}
+        open={open}
+        onChange={(o) => update(collapsed, ({ [key]: _old, ...rest }) => (o ? rest : { ...rest, [key]: true }))}
+      >
+        {children}
+      </Collapsible>
+    </Box>
   )
 }
 
@@ -257,15 +277,15 @@ function Queue({ s }: { s: Snapshot }) {
       )}
       <Heading level={3}>Open work</Heading>
       {s.open.length ? (
-        // Header and list are siblings: nesting the list in another Stack lets long rows widen the panel.
-        s.open.flatMap((g: Group<TaskRow>) => [
-          <ProductHeader name={g.product} note={`${g.items.length} open`} />,
-          <List label={g.product}>
-            {g.items.map((t) => (
-              <ListItem title={t.title} description={`${t.status} · ${t.via}`} icon="layers" />
-            ))}
-          </List>
-        ])
+        s.open.map((g: Group<TaskRow>) => (
+          <ProductGroup tab="queue" name={g.product} note={`${g.items.length} open`}>
+            <List label={g.product}>
+              {g.items.map((t) => (
+                <ListItem title={t.title} description={`${t.status} · ${t.via}`} icon="layers" />
+              ))}
+            </List>
+          </ProductGroup>
+        ))
       ) : (
         <Text muted size="sm">
           No open items.
@@ -277,11 +297,7 @@ function Queue({ s }: { s: Snapshot }) {
 
 function FlowItem({ f }: { f: FlowRow }) {
   return (
-    <ListItem
-      title={f.subject || f.type}
-      icon={f.waiting ? 'flag' : 'activity'}
-      onPress={f.worktreeId ? go(f.worktreeId, f.address) : undefined}
-    >
+    <ListItem title={f.subject || f.type} icon={f.waiting ? 'flag' : 'activity'} onPress={f.worktreeId ? go(f.worktreeId, f.address) : undefined}>
       <Stack gap="xs">
         <Row gap="xs" wrap align="center">
           {/* Same tone as the Queue's "waiting on you" state. */}
@@ -306,14 +322,23 @@ function Flows({ s }: { s: Snapshot }) {
     <Stack gap="md">
       <SourceError text={s.errors.flows} />
       {s.flows.length ? (
-        s.flows.flatMap((g) => [
-          <ProductHeader name={g.product} note={`${g.items.length} messages`} />,
-          <List label={g.product}>
-            {g.items.map((f) => (
-              <FlowItem f={f} />
-            ))}
-          </List>
-        ])
+        s.flows.map((g) => {
+          const waiting = g.items.filter((f) => f.waiting).length
+          return (
+            <ProductGroup
+              tab="flows"
+              name={g.product}
+              note={`${g.items.length} messages`}
+              alert={waiting ? { tone: 'warning', text: `${waiting} waiting on you` } : null}
+            >
+              <List label={g.product}>
+                {g.items.map((f) => (
+                  <FlowItem f={f} />
+                ))}
+              </List>
+            </ProductGroup>
+          )
+        })
       ) : (
         <EmptyState title="No messages between agents yet" icon="activity" />
       )}
@@ -370,7 +395,7 @@ function Overview({ s }: { s: Snapshot }) {
         ))}
       </Box>
       {s.overview.map((b) => (
-        <Card title={b.name} description={b.doing}>
+        <ProductGroup tab="overview" name={b.name} note={b.doing || `${b.open} open`} alert={b.needsYou ? { tone: 'warning', text: `${b.needsYou} need you` } : null}>
           <Stack gap="xs">
             <Row gap="xs" wrap>
               <Badge tone={b.needsYou ? 'warning' : 'neutral'}>{b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`}</Badge>
@@ -382,7 +407,7 @@ function Overview({ s }: { s: Snapshot }) {
               </Text>
             ) : null}
           </Stack>
-        </Card>
+        </ProductGroup>
       ))}
     </Stack>
   )
@@ -396,77 +421,95 @@ function counts(items: AgentRow[]): string {
     .join(' · ')
 }
 
+function officeAlert(items: AgentRow[]): Alert {
+  const n = (st: AgentState) => items.filter((a) => a.state === st).length
+  return worst(
+    n('errored') ? { tone: 'danger', text: `${n('errored')} errored` } : null,
+    n('waiting') ? { tone: 'warning', text: `${n('waiting')} waiting on you` } : null
+  )
+}
+
 function Office({ s }: { s: Snapshot }) {
   if (!s.office.length) return <EmptyState title="No agents running" icon="agent" />
   return (
     <Stack gap="md">
-      {s.office.flatMap((g) => [
-        <ProductHeader name={g.product} note={counts(g.items)} />,
-        <List label={g.product}>
-          {g.items.map((a) => (
-            <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
-              <Stack gap="xs">
-                <Row gap="xs" wrap align="center">
-                  <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
-                  {a.since ? <RelativeTime at={a.since} muted /> : null}
-                  <Text size="xs" muted truncate>
-                    {a.workspace}
-                  </Text>
-                </Row>
-                {a.detail ? (
-                  <Text size="xs" muted truncate>
-                    {a.detail}
-                  </Text>
-                ) : null}
-              </Stack>
-            </ListItem>
-          ))}
-        </List>
-      ])}
+      {s.office.map((g) => (
+        <ProductGroup tab="office" name={g.product} note={counts(g.items)} alert={officeAlert(g.items)}>
+          <List label={g.product}>
+            {g.items.map((a) => (
+              <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
+                <Stack gap="xs">
+                  <Row gap="xs" wrap align="center">
+                    <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
+                    {a.since ? <RelativeTime at={a.since} muted /> : null}
+                    <Text size="xs" muted truncate>
+                      {a.workspace}
+                    </Text>
+                  </Row>
+                  {a.detail ? (
+                    <Text size="xs" muted truncate>
+                      {a.detail}
+                    </Text>
+                  ) : null}
+                </Stack>
+              </ListItem>
+            ))}
+          </List>
+        </ProductGroup>
+      ))}
     </Stack>
   )
 }
 
+const runText = (run: ShipRow['latestRun']) => (!run ? 'No runs' : `${run.name} ${run.result === 'pass' ? 'passed' : run.result === 'fail' ? 'failed' : 'running'}`)
+
+const siteAlert = (rows: SiteRow[]): Alert => {
+  const n = (st: SiteState) => rows.filter((r) => r.state === st).length
+  return worst(n('down') ? { tone: 'danger', text: `${n('down')} down` } : null, n('degraded') ? { tone: 'warning', text: `${n('degraded')} degraded` } : null)
+}
+
 function ShipCard({ r, sites }: { r: ShipRow; sites: SiteRow[] }) {
   const run = r.latestRun
+  const failing = r.prs.filter((p) => p.checks === 'fail').length
+  const alert = worst(
+    run?.result === 'fail' ? { tone: 'danger', text: runText(run) } : null,
+    failing ? { tone: 'danger', text: `${failing} PR${failing === 1 ? '' : 's'} failing` } : null,
+    siteAlert(sites)
+  )
   return (
-    <Stack gap="xs">
-      <Row justify="between" align="center" wrap>
-        <Text weight="semibold">{r.product}</Text>
-        {run ? (
-          <Badge tone={run.result === 'pass' ? 'success' : run.result === 'fail' ? 'danger' : 'warning'}>
-            {run.name} {run.result === 'pass' ? 'passed' : run.result === 'fail' ? 'failed' : 'running'}
-          </Badge>
+    <ProductGroup tab="ship" name={r.product} note={`${runText(run)} · ${r.error ? 'unreadable' : `${r.prs.length} open`}`} alert={alert}>
+      <Stack gap="xs">
+        <Row justify="between" align="center" wrap>
+          {run ? (
+            <Badge tone={run.result === 'pass' ? 'success' : run.result === 'fail' ? 'danger' : 'warning'}>{runText(run)}</Badge>
+          ) : (
+            <Badge tone="neutral">No runs</Badge>
+          )}
+        </Row>
+        {r.error ? (
+          <Text size="xs" tone="warning">
+            {r.error}
+          </Text>
+        ) : r.prs.length ? (
+          <List label={`${r.repo} · ${r.prs.length} open`}>
+            {r.prs.map((p) => (
+              <ListItem title={`#${p.number} ${p.title}`} onPress={() => void shell.openExternal(p.url).catch(() => undefined)}>
+                <Row gap="xs" wrap>
+                  {p.draft ? <Badge tone="neutral">Draft</Badge> : null}
+                  <Badge tone={CHECKS[p.checks].tone}>{CHECKS[p.checks].label}</Badge>
+                  <Badge tone={REVIEW[p.review].tone}>{REVIEW[p.review].label}</Badge>
+                </Row>
+              </ListItem>
+            ))}
+          </List>
         ) : (
-          <Badge tone="neutral">No runs</Badge>
+          <Text size="xs" muted>
+            {r.repo} · no open pull requests
+          </Text>
         )}
-      </Row>
-      {r.error ? (
-        <Text size="xs" tone="warning">
-          {r.error}
-        </Text>
-      ) : r.prs.length ? (
-        <List label={`${r.repo} · ${r.prs.length} open`}>
-          {r.prs.map((p) => (
-            <ListItem
-              title={`#${p.number} ${p.title}`}
-              onPress={() => void shell.openExternal(p.url).catch(() => undefined)}
-            >
-              <Row gap="xs" wrap>
-                {p.draft ? <Badge tone="neutral">Draft</Badge> : null}
-                <Badge tone={CHECKS[p.checks].tone}>{CHECKS[p.checks].label}</Badge>
-                <Badge tone={REVIEW[p.review].tone}>{REVIEW[p.review].label}</Badge>
-              </Row>
-            </ListItem>
-          ))}
-        </List>
-      ) : (
-        <Text size="xs" muted>
-          {r.repo} · no open pull requests
-        </Text>
-      )}
-      <SiteList label={`${r.product} sites`} rows={sites} />
-    </Stack>
+        <SiteList label={`${r.product} sites`} rows={sites} />
+      </Stack>
+    </ProductGroup>
   )
 }
 
@@ -511,19 +554,19 @@ function Sites({ s, shown }: { s: Snapshot; shown: Set<string> }) {
   return (
     <Stack gap="md">
       {plain.length || s.siteErrors.length ? (
-        <Stack gap="xs">
-          <ProductHeader name="Sites" note={upNote(plain)} />
-          {s.siteErrors.map((e) => (
-            <SourceError text={`Sites to ping: ${e}`} />
-          ))}
-          <SiteList label="Sites" rows={plain} />
-        </Stack>
+        <ProductGroup tab="ship" name="Sites" note={upNote(plain)} alert={siteAlert(plain)}>
+          <Stack gap="xs">
+            {s.siteErrors.map((e) => (
+              <SourceError text={`Sites to ping: ${e}`} />
+            ))}
+            <SiteList label="Sites" rows={plain} />
+          </Stack>
+        </ProductGroup>
       ) : null}
       {[...groups].map(([product, rows]) => (
-        <Stack gap="xs">
-          <ProductHeader name={product} note={upNote(rows)} />
+        <ProductGroup tab="ship" name={product} note={upNote(rows)} alert={siteAlert(rows)}>
           <SiteList label={`${product} sites`} rows={rows} />
-        </Stack>
+        </ProductGroup>
       ))}
     </Stack>
   )
@@ -547,11 +590,7 @@ function Ship({ s }: { s: Snapshot }) {
       {ship.length ? (
         ship.map((r) => <ShipCard r={r} sites={sitesOf(r.product)} />)
       ) : (
-        <EmptyState
-          title="No GitHub repos to watch"
-          description="Add owner/name repos in Settings, or a GitHub project to Orca."
-          icon="rocket"
-        />
+        <EmptyState title="No GitHub repos to watch" description="Add owner/name repos in Settings, or a GitHub project to Orca." icon="rocket" />
       )}
     </Stack>
   )
