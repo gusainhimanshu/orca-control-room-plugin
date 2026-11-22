@@ -192,13 +192,27 @@ test('with answering turned off, a gate shows its options as labels and nothing 
   await view.unmount()
 })
 
-test("a bot item's options open the bot's chat and never send an answer", async () => {
-  const item = { ...snap.needsYou[0], worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1' }
+test("a bot item shows its options as text and one honest button to its bot's chats; nothing is sent", async () => {
+  const item = { ...snap.needsYou[0], worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1', chat: 'Planning' }
   const { view, sent, navigated } = await withGate({ ...snap, needsYou: [item] })
-  await view.press({ role: 'button', text: 'no' })
+  // The options are plain text, not buttons that would claim to answer.
+  assert.ok(view.find({ text: 'no' }))
+  assert.equal(view.findAll({ role: 'button' }).filter((b) => /^(no|yes)/.test(b.text ?? '')).length, 0)
+  const open = view.find({ role: 'button', text: 'Open chat to answer' })
+  assert.ok(open)
+  const tip = JSON.stringify(open)
+  assert.match(tip, /the 'Planning' chat/)
+  assert.ok(!tip.includes('Answer in'))
+  await view.press({ role: 'button', text: 'Open chat to answer' })
   assert.deepEqual(navigated, [{ worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1' }])
-  assert.equal(view.find({ text: "Send 'no' to the coordinator?" }), null)
   assert.deepEqual(sent, [])
+  await view.unmount()
+})
+
+test("a bot item whose chat Orca doesn't show keeps its options as text and has no button", async () => {
+  const { view } = await withGate({ ...snap, needsYou: [snap.needsYou[0]] })
+  assert.ok(view.find({ text: 'no' }))
+  assert.equal(view.find({ role: 'button', text: 'Open chat to answer' }), null)
   await view.unmount()
 })
 

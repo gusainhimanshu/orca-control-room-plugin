@@ -227,31 +227,27 @@ function GateAnswer({ n, options }: { n: NeedRow; options: string[] }) {
   )
 }
 
-/** A bot item's options: Orca has no way to answer an item for its owner, so they open the bot's chat. */
-function ItemOptions({ n, options }: { n: NeedRow; options: string[] }) {
-  if (!n.worktreeId)
-    return (
-      <Row gap="xs" wrap>
-        {options.map((o) => (
-          <Badge tone="neutral">{o}</Badge>
-        ))}
-      </Row>
-    )
+/** A bot item's options, as text: Orca has no way to answer an item for its owner from a plugin. */
+function ItemOptions({ options }: { options: string[] }) {
   return (
     <Row gap="xs" wrap>
       {options.map((o) => (
-        <Button size="sm" variant="outline" icon="open-external" tooltip={`Answer in ${n.from ?? 'the bot'}'s chat`} onPress={go(n.worktreeId, n.address)}>
-          {o}
-        </Button>
+        <Badge tone="neutral">{o}</Badge>
       ))}
     </Row>
   )
 }
 
+/** Orca can show the bot's workspace but not switch to one of its chats, so the tooltip names the chat to pick. */
+const openChatTooltip = (n: NeedRow) =>
+  `Opens ${n.from ?? 'the bot'}'s chats. Orca can't open one chat or answer for you from a panel: ` +
+  `switch to ${n.chat ? `the '${n.chat}' chat` : 'the chat that owns this item'} and answer there.`
+
 function NeedItem({ n, canAnswer }: { n: NeedRow; canAnswer: boolean }) {
   const answerable = n.kind === 'gate' && canAnswer
-  // A pressable row cannot hold buttons: when the options are buttons to the chat, they navigate instead.
-  const optionButtons = answerable || (n.kind === 'item' && !!n.worktreeId && n.decisions.some((d) => d.options.length > 0))
+  const openChat = n.kind === 'item' && !!n.worktreeId
+  // A pressable row cannot hold buttons.
+  const optionButtons = answerable || openChat
   return (
     <ListItem
       title={n.title}
@@ -267,11 +263,18 @@ function NeedItem({ n, canAnswer }: { n: NeedRow; canAnswer: boolean }) {
                 {d.prompt}
               </Text>
             ) : null}
-            {answerable ? null : <ItemOptions n={n} options={d.options} />}
+            {answerable ? null : <ItemOptions options={d.options} />}
           </Stack>
         ))}
         {/* A gate with no options still takes a typed answer. */}
         {answerable ? <GateAnswer n={n} options={n.decisions.flatMap((d) => d.options)} /> : null}
+        {openChat ? (
+          <Row>
+            <Button size="sm" variant="outline" icon="open-external" tooltip={openChatTooltip(n)} onPress={go(n.worktreeId, n.address)}>
+              Open chat to answer
+            </Button>
+          </Row>
+        ) : null}
         <Row gap="xs" wrap>
           <Text size="xs" muted>
             {n.from ? `${n.from} · ${n.product}` : n.product}
