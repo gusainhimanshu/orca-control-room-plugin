@@ -1,11 +1,12 @@
 # Control Room
 
 A **read-only** control room for Orca's right sidebar: what is waiting on you, every agent in every
-workspace, and each product's pull requests and CI, grouped by product (Orca project).
+workspace, each product's pull requests and CI, grouped by product (Orca project), and whether
+the sites you list are up.
 
 It never answers a bot, writes to an agent or terminal, or presses a permission. A click only
 navigates: it focuses an agent's terminal, or shows its workspace. A pull request row opens the PR
-in your browser (Orca asks first).
+in your browser (Orca asks first); so does a site row, with the site's URL.
 
 ## Views
 
@@ -22,9 +23,13 @@ in your browser (Orca asks first).
   short. An unanswered question or escalation is marked *Waiting on you*. Click to go to the worker's
   workspace when Orca knows it.
 - **Ship**: per product, open pull requests with their checks state and review state, plus the
-  latest GitHub Actions run (passed / failed / running).
+  latest GitHub Actions run (passed / failed / running). At the top, when *Sites to ping* is set,
+  a **Sites** group: each site as *up* (2xx/3xx), *degraded* (4xx, or slower than 2 s) or *down*
+  (5xx, timeout, DNS or connection error), with its response time and since when it has been so.
+  Bad entries in the setting show inline with the reason.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
-  past the threshold, or errors. Already-announced events are remembered in plugin storage.
+  past the threshold, or errors; and one when a site goes down, and one when it comes back.
+  Already-announced events are remembered in plugin storage.
 - **Status bar**: `Control Room · N to decide`.
 
 ## Where the data comes from
@@ -50,9 +55,17 @@ workspace. An item that links nothing takes the product the bot's other items wo
 | `gh run list -R <repo> --limit 1 --json …` | latest Actions run |
 
 GitHub data comes only through your locally installed and signed-in `gh`. The plugin holds no
-tokens and makes no network calls of its own.
+tokens.
 
-Orca is read every 5 s and GitHub every 60 s. Reading rounds never overlap (one queue for both),
+### Site pings: the only network requests
+
+Pinging the sites in *Sites to ping* is the **one** place the plugin makes network requests of its
+own, and only to the URLs you list there (`src/sites.ts`). Empty (the default) means no request at
+all. Each site, once a minute: a `HEAD` request (`GET` if the server refuses `HEAD`), 5 s timeout,
+no cookies or credentials, at most 3 redirects followed (only to `http(s)`). The response body is
+never read or stored; only the status code and the time taken are kept.
+
+Orca is read every 5 s, GitHub every 60 s and the sites every 60 s. Reading rounds never overlap (one queue for both),
 and agent or workspace events trigger an early Orca round. A failing source shows a small warning
 in its view; the rest of the panel keeps working.
 
@@ -64,17 +77,18 @@ in its view; the rest of the panel keeps working.
 | `workspace:read` | hear workspace created/removed events to refresh early |
 | `agent:read` | hear agent status changes to refresh early |
 | `workspace:write` | **only** `terminal.focus` and `workspace.open`, so a click can take you to an agent. Nothing renames, hides or runs commands |
-| `notifications:show` | the stuck-agent alarm |
+| `notifications:show` | the stuck-agent alarm and site down / back notifications |
 | `storage:own` | remember which alarms were already shown |
-| `settings:own` | read the four settings below |
+| `settings:own` | read the five settings below |
 
 ## Settings
 
 | Setting | Default |
 | --- | --- |
-| Stuck-agent notifications | on |
+| Notifications (stuck agents, sites going down or coming back) | on |
 | Stuck threshold (minutes) | 15 |
 | Repos to watch on the Ship board (`owner/name`, comma separated) | empty = every GitHub repo behind your Orca projects |
+| Sites to ping (`Name=https://url`, comma or newline separated, e.g. `Shop=https://shop.example.com`) | empty = no Sites group and no requests |
 | Orca CLI path | empty = find it automatically |
 
 ## Install
@@ -96,11 +110,19 @@ No build step and no dependencies.
 ```sh
 orca plugin validate .
 orca plugin check .
-orca plugin test .          # model, platform and panel tests (invented data)
-npx -p typescript tsc -p .  # type check
+orca plugin test .          # model, platform, sites and panel tests (invented data, no real requests)
+npx -y -p typescript@5.9.3 tsc -p . --noEmit  # type check
 ```
 
+CI (`.github/workflows/ci.yml`, Ubuntu and Windows, Node LTS) runs without Orca: the type check
+against a copy of Orca's generated types in `ci/orca-types/`, and the pure tests (model, platform,
+sites) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
+`assert`. The panel test needs Orca's `mount()`, so it runs only under `orca plugin test`. After
+upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci/orca-types/`.
+
 - `src/model.ts`: pure data → view-model functions (tested in `src/model.test.ts`).
+- `src/sites.ts`: parsing *Sites to ping*, the ping itself (fetch injected) and up/degraded/down
+  (tested in `src/sites.test.ts`).
 - `src/sources.ts`: the command allow-list.
 - `src/worker.ts`: polling, alarms, status bar, navigation.
 - `src/panel.tsx`: the components panel.
@@ -122,6 +144,6 @@ Windows notes:
 
 ## Not yet
 
-Acting from the panel, network calls of its own, flow diagrams, title-emoji parsing, an external
-state file, an overlaps view, live-site pings. Agents Orca only remembers (no terminal or chat left)
+Acting from the panel, network calls beyond the site pings, flow diagrams, title-emoji parsing, an
+external state file, an overlaps view, mapping a site to a product. Agents Orca only remembers (no terminal or chat left)
 are not shown.

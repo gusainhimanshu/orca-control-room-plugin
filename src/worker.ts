@@ -1,5 +1,6 @@
-// The worker reads Orca and GitHub on a fixed clock, builds the view model and pushes it to open
-// panels, the status bar and (for stuck agents) desktop notifications. It never writes to an
+// The worker reads Orca and GitHub, and pings the sites the user lists, on a fixed clock, builds
+// the view model and pushes it to open panels, the status bar and (for stuck agents and sites that
+// go down or come back) desktop notifications. It never writes to an
 // agent, terminal or bot: the only actions are focusing a terminal or showing a workspace.
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
@@ -27,14 +28,16 @@ import {
 } from './model'
 import { resolveTool } from './platform'
 import { emptySnapshot, type Snapshot } from './protocol'
+import { nextSiteRows, parseSites, ping, siteAlarms, siteNotice } from './sites'
 import { ghRead, orcaRead, PR_FIELDS, RUN_FIELDS } from './sources'
 
 export const ORCA_EVERY_MS = 5_000
 export const GH_EVERY_MS = 60_000
+export const SITES_EVERY_MS = 60_000
 const FLOW_LIMIT = 40
 const SEEN_KEY = 'alarms.seen'
 
-type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string }
+type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string }
 
 async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
   const s = await orca.settings.get()
@@ -42,7 +45,8 @@ async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
     notifications: s.notifications !== false,
     stuckMinutes: typeof s.stuckMinutes === 'number' && s.stuckMinutes > 0 ? s.stuckMinutes : 15,
     shipRepos: typeof s.shipRepos === 'string' ? s.shipRepos : '',
-    orcaPath: typeof s.orcaPath === 'string' ? s.orcaPath : ''
+    orcaPath: typeof s.orcaPath === 'string' ? s.orcaPath : '',
+    sites: typeof s.sites === 'string' ? s.sites : ''
   }
 }
 
@@ -156,6 +160,13 @@ export default function activate(orca: OrcaWorkerApi): void {
     publish({ ghAt: Date.now(), ship, errors: { gh: failing ? ship[0].error ?? undefined : undefined } })
   }
 
+  async function sitesRound(): Promise<void> {
+    const { sites, errors } = parseSites((await readSettings(orca)).sites)
+    // No sites, no request: an empty setting never touches the network.
+    const results = await mapLimit(sites, 4, (site) => ping(site.url, fetch))
+    publish({ sitesAt: Date.now(), sites: nextSiteRows(snap.sites, sites, results, Date.now()), siteErrors: errors })
+  }
+
   async function statusBar(count: number): Promise<void> {
     await orca.host
       .call('statusBar.update', {
@@ -167,17 +178,22 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
 
   async function alarm(settings: Settings): Promise<void> {
-    const seen = await orca.storage.get(SEEN_KEY)
+    const stored = await orca.storage.get(SEEN_KEY)
+    const seen = Array.isArray(stored) ? stored.map(String) : []
+    const isSite = (key: string) => key.startsWith('site:')
     const { fresh, remember } = freshAlarms(
-      stuckAlarms(snap.office, Date.now(), settings.stuckMinutes),
-      Array.isArray(seen) ? seen.map(String) : []
+      [...stuckAlarms(snap.office, Date.now(), settings.stuckMinutes), ...siteAlarms(snap.sites)],
+      seen
     )
-    await orca.storage.set(SEEN_KEY, remember)
-    const notice = alarmNotice(fresh)
-    if (notice && settings.notifications) await orca.host.call('notifications.show', notice).catch(() => undefined)
+    // Until this worker has pinged once, keep the remembered site events so a restart does not re-announce them.
+    await orca.storage.set(SEEN_KEY, snap.sitesAt ? remember : [...remember, ...seen.filter(isSite)])
+    if (!settings.notifications) return
+    for (const notice of [alarmNotice(fresh.filter((a) => !isSite(a.key))), siteNotice(fresh.filter((a) => isSite(a.key)))]) {
+      if (notice) await orca.host.call('notifications.show', notice).catch(() => undefined)
+    }
   }
 
-  // One reading round at a time across both sources; asking for a round already queued is a no-op.
+  // One reading round at a time across all sources; asking for a round already queued is a no-op.
   let chain: Promise<void> = Promise.resolve()
   const queued = new Set<() => Promise<void>>()
   const enqueue = (round: () => Promise<void>) => {
@@ -189,9 +205,14 @@ export default function activate(orca: OrcaWorkerApi): void {
     })
   }
 
-  const timers = [setInterval(() => enqueue(orcaRound), ORCA_EVERY_MS), setInterval(() => enqueue(ghRound), GH_EVERY_MS)]
+  const timers = [
+    setInterval(() => enqueue(orcaRound), ORCA_EVERY_MS),
+    setInterval(() => enqueue(ghRound), GH_EVERY_MS),
+    setInterval(() => enqueue(sitesRound), SITES_EVERY_MS)
+  ]
   enqueue(orcaRound)
   enqueue(ghRound)
+  enqueue(sitesRound)
 
   // Agent and workspace changes refresh early instead of waiting for the next tick.
   for (const event of ['agent.status.changed', 'workspace.created', 'workspace.removed'] as const) {
@@ -200,6 +221,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.settings.onDidChange(() => {
     enqueue(orcaRound)
     enqueue(ghRound)
+    enqueue(sitesRound)
   })
 
   orca.panels.handle('snapshot.get', async () => snap)

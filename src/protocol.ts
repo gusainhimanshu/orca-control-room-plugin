@@ -1,5 +1,6 @@
 // The panel <-> worker contract, declared once: src/panel.tsx and src/worker.ts both read it.
 import type { AgentRow, FlowRow, Group, NeedRow, ShipRow, TaskRow } from './model'
+import type { SiteRow } from './sites'
 
 /** Each source's last error, or absent when its last read worked. */
 export type SourceErrors = Partial<Record<'orca' | 'bots' | 'runs' | 'flows' | 'gh', string>>
@@ -15,6 +16,12 @@ export type Snapshot = {
   /** Recent inter-agent messages, newest first within each product. */
   flows: Group<FlowRow>[]
   ship: ShipRow[]
+  /** 0 until the first site round finishes (it runs even when no sites are set). */
+  sitesAt: number
+  /** One row per site in the "Sites to ping" setting; empty when it is empty. */
+  sites: SiteRow[]
+  /** Entries of that setting that could not be used, each with the reason. */
+  siteErrors: string[]
   errors: SourceErrors
 }
 
@@ -26,6 +33,9 @@ export const emptySnapshot = (): Snapshot => ({
   office: [],
   flows: [],
   ship: [],
+  sitesAt: 0,
+  sites: [],
+  siteErrors: [],
   errors: {}
 })
 

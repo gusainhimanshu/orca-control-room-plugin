@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.2.0",
-  "description": "Read-only control room: what waits on you, every agent by product, and each product's pull requests and CI.",
+  "version": "0.3.0",
+  "description": "Read-only control room: what waits on you, every agent by product, each product's pull requests and CI, and pings of the sites you list.",
   "engines": {
     "orca": ">=1.4.259"
   },
@@ -36,8 +36,8 @@
     "settings": [
       {
         "key": "notifications",
-        "title": "Stuck-agent notifications",
-        "description": "Show a desktop notification once when an agent waits on you or idles past the threshold, or errors.",
+        "title": "Notifications",
+        "description": "Show a desktop notification once when an agent waits on you or idles past the threshold, or errors, and once when a site you ping goes down or comes back.",
         "type": "boolean",
         "default": true
       },
@@ -54,6 +54,14 @@
         "title": "Repos to watch on the Ship board",
         "description": "owner/name, separated by commas. Empty watches every GitHub repo behind your Orca projects.",
         "type": "string",
+        "default": ""
+      },
+      {
+        "key": "sites",
+        "title": "Sites to ping",
+        "description": "Name=https://url entries, separated by commas or new lines. Each is requested once a minute (5 s timeout, no cookies). Empty: no Sites section and no network requests.",
+        "type": "string",
+        "multiline": true,
         "default": ""
       },
       {
