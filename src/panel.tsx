@@ -526,26 +526,26 @@ function Office({ s }: { s: Snapshot }) {
 
 function AgentList({ label, rows }: { label: string; rows: AgentRow[] }) {
   return (
-          <List label={label}>
-            {rows.map((a) => (
-              <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
-                <Stack gap="xs">
-                  <Row gap="xs" wrap align="center">
-                    <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
-                    {a.since ? <RelativeTime at={a.since} muted /> : null}
-                    <Text size="xs" muted truncate>
-                      {a.workspace}
-                    </Text>
-                  </Row>
-                  {a.detail ? (
-                    <Text size="xs" muted truncate>
-                      {a.detail}
-                    </Text>
-                  ) : null}
-                </Stack>
-              </ListItem>
-            ))}
-          </List>
+    <List label={label}>
+      {rows.map((a) => (
+        <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
+          <Stack gap="xs">
+            <Row gap="xs" wrap align="center">
+              <Badge tone={STATE[a.state].tone}>{STATE[a.state].label}</Badge>
+              {a.since ? <RelativeTime at={a.since} muted /> : null}
+              <Text size="xs" muted truncate>
+                {a.workspace}
+              </Text>
+            </Row>
+            {a.detail ? (
+              <Text size="xs" muted truncate>
+                {a.detail}
+              </Text>
+            ) : null}
+          </Stack>
+        </ListItem>
+      ))}
+    </List>
   )
 }
 
