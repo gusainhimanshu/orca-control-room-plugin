@@ -2,6 +2,7 @@
 import { assert, test } from 'orca/testing'
 import {
   alarmNotice,
+  buildFlows,
   buildOffice,
   buildQueue,
   buildShipRow,
@@ -198,4 +199,48 @@ test('alarm notice summarises many', () => {
   assert.deepEqual(alarmNotice([{ key: 'a', text: 'A is idle' }]), { title: 'Agent needs a look', body: 'A is idle' })
   const many = Array.from({ length: 6 }, (_, i) => ({ key: `${i}`, text: `T${i}` }))
   assert.deepEqual(alarmNotice(many), { title: '6 agents need a look', body: 'T0\nT1\nT2\nT3\nand 2 more' })
+})
+
+test('flows: newest first by product, first body line only, open asks wait on you, workers navigate', () => {
+  const workers = [
+    { taskId: 'task_a', dispatchId: 'ctx_a', workspace: 'r1::/w/alpha', terminal: 'structworker_aaa' },
+    { taskId: 'task_b', dispatchId: 'ctx_b', workspace: 'r2::/w/beta' }
+  ]
+  const long = 'x'.repeat(300)
+  const flows = buildFlows(
+    [
+      { id: 'm1', type: 'question', from: 'structworker_aaa', to: 'run:run_1', subject: 'Which colour?', handled: false, body: 'Red or blue?\nSecret second line', payload: { taskId: 'task_a', dispatchId: 'ctx_a' } },
+      { id: 'm2', type: 'status', from: 'orca_session_id:bot-group-member-1', to: 'dispatch:ctx_b', subject: 'Go ahead', handled: true, body: long },
+      { id: 'm3', type: 'escalation', from: 'orca_session_id:abc', to: 'run:run_9', subject: 'Stuck', handled: true, body: 'Done\r\nnow' },
+      { id: 'm4', type: 'worker_done', from: 'structworker_aaa', to: 'run:run_1', subject: 'Finished', handled: false, body: '' }
+    ],
+    workers,
+    products,
+    new Map([['task_a', 'Paint the door']])
+  )
+  assert.deepEqual(
+    flows.map((g) => [g.product, g.items.map((f) => f.key)]),
+    [
+      ['Alpha', ['m1', 'm4']],
+      ['Beta', ['m2']],
+      ['Other', ['m3']]
+    ]
+  )
+  const [m1, m4] = flows[0].items
+  assert.deepEqual(m1, {
+    key: 'm1',
+    from: 'Paint the door',
+    to: 'coordinator',
+    type: 'question',
+    subject: 'Which colour?',
+    line: 'Red or blue?',
+    waiting: true,
+    worktreeId: 'r1::/w/alpha',
+    address: 'structworker_aaa'
+  })
+  assert.equal(m4.waiting, false) // only questions and escalations wait on you
+  const m2 = flows[1].items[0]
+  assert.deepEqual([m2.from, m2.to, m2.worktreeId, m2.address, m2.line.length], ['bot', 'worker', 'r2::/w/beta', null, 120])
+  const m3 = flows[2].items[0]
+  assert.deepEqual([m3.from, m3.waiting, m3.line, m3.worktreeId], ['agent', false, 'Done', null])
 })

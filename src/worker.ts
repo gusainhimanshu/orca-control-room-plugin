@@ -4,6 +4,7 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   alarmNotice,
+  buildFlows,
   buildOffice,
   buildQueue,
   buildShipRow,
@@ -14,6 +15,7 @@ import {
   type BotItems,
   type RawGate,
   type RawItem,
+  type RawMessage,
   type RawPr,
   type RawRepo,
   type RawRun,
@@ -29,6 +31,7 @@ import { ghRead, orcaRead, PR_FIELDS, RUN_FIELDS } from './sources'
 
 export const ORCA_EVERY_MS = 5_000
 export const GH_EVERY_MS = 60_000
+const FLOW_LIMIT = 40
 const SEEN_KEY = 'alarms.seen'
 
 type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string }
@@ -108,9 +111,19 @@ export default function activate(orca: OrcaWorkerApi): void {
       } catch (e) {
         runsError = message(e)
       }
+      // Flows: the last messages across every mailbox. The concise view only previews bodies.
+      let flows = snap.flows
+      let flowsError: string | undefined
+      try {
+        const inbox = await orcaRead<{ messages: RawMessage[] }>(bin, 'orchestration inbox', ['--limit', String(FLOW_LIMIT)])
+        const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
+        flows = buildFlows(inbox.messages ?? [], workers, products, titles)
+      } catch (e) {
+        flowsError = message(e)
+      }
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
-      publish({ orcaAt: Date.now(), office, ...queue, errors: { orca: undefined, bots: botsError, runs: runsError } })
+      publish({ orcaAt: Date.now(), office, flows, ...queue, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {

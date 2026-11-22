@@ -16,6 +16,11 @@ in your browser (Orca asks first).
   orchestration tasks that no bot item already tracks.
 - **Office**: every agent that still has a terminal or chat, grouped by product, as *working*,
   *waiting on you*, *idle* or *errored*, with how long it has been so. Click to go to it.
+- **Flows**: the last 40 messages between bots, coordinators and workers, newest first, grouped by
+  the product their task or Dispatch works in (else *Other*). Each row: from → to, the message type
+  (question, status, worker_done, escalation…), its subject and only the first line of the body, cut
+  short. An unanswered question or escalation is marked *Waiting on you*. Click to go to the worker's
+  workspace when Orca knows it.
 - **Ship**: per product, open pull requests with their checks state and review state, plus the
   latest GitHub Actions run (passed / failed / running).
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
@@ -37,6 +42,7 @@ Only a fixed allow-list of read-only commands, run with argument arrays (never a
 | `orca orchestration task-list --run <id> --json` | open tasks no bot item tracks |
 | `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
 | `orca orchestration worker-list --json` | which product a task or Dispatch works in |
+| `orca orchestration inbox --limit 40 --json` | the Flows view: recent messages across every mailbox (bodies come previewed, never full) |
 
 A bot item's product comes from what it links: a pull request's workspace or repo, or a Dispatch's
 workspace. An item that links nothing takes the product the bot's other items work in.
@@ -114,7 +120,7 @@ Windows notes:
 - Orca gives plugin workers a trimmed environment without `APPDATA`/`LOCALAPPDATA` (both CLIs need
   them) and with `ELECTRON_RUN_AS_NODE`; `toolEnv()` restores the former from `USERPROFILE` and drops the latter.
 
-## Not in v1
+## Not yet
 
 Acting from the panel, network calls of its own, flow diagrams, title-emoji parsing, an external
 state file, an overlaps view, live-site pings. Agents Orca only remembers (no terminal or chat left)

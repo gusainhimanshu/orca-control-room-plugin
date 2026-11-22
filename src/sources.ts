@@ -9,7 +9,8 @@ const ORCA_READS = new Set([
   'orchestration run-list',
   'orchestration task-list',
   'orchestration gate-list',
-  'orchestration worker-list'
+  'orchestration worker-list',
+  'orchestration inbox'
 ])
 const GH_READS = new Set(['pr list', 'run list'])
 

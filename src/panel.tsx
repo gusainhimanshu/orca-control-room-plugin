@@ -22,7 +22,7 @@ import {
   type PanelContext,
   type Tone
 } from 'orca'
-import type { AgentRow, AgentState, Checks, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
+import type { AgentRow, AgentState, Checks, FlowRow, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
@@ -156,6 +156,52 @@ function Queue({ s }: { s: Snapshot }) {
   )
 }
 
+function FlowItem({ f }: { f: FlowRow }) {
+  return (
+    <ListItem
+      title={f.subject || f.type}
+      icon={f.waiting ? 'flag' : 'activity'}
+      onPress={f.worktreeId ? go(f.worktreeId, f.address) : undefined}
+    >
+      <Stack gap="xs">
+        <Row gap="xs" wrap align="center">
+          {/* Same tone as the Queue's "waiting on you" state. */}
+          {f.waiting ? <Badge tone="warning">Waiting on you</Badge> : null}
+          <Badge tone="neutral">{f.type}</Badge>
+          <Text size="xs" muted truncate>
+            {`${f.from} → ${f.to}`}
+          </Text>
+        </Row>
+        {f.line ? (
+          <Text size="xs" muted truncate>
+            {f.line}
+          </Text>
+        ) : null}
+      </Stack>
+    </ListItem>
+  )
+}
+
+function Flows({ s }: { s: Snapshot }) {
+  return (
+    <Stack gap="md">
+      <SourceError text={s.errors.flows} />
+      {s.flows.length ? (
+        s.flows.flatMap((g) => [
+          <ProductHeader name={g.product} note={`${g.items.length} messages`} />,
+          <List label={g.product}>
+            {g.items.map((f) => (
+              <FlowItem f={f} />
+            ))}
+          </List>
+        ])
+      ) : (
+        <EmptyState title="No messages between agents yet" icon="activity" />
+      )}
+    </Stack>
+  )
+}
+
 function counts(items: AgentRow[]): string {
   const n = (st: AgentState) => items.filter((a) => a.state === st).length
   return (['working', 'waiting', 'errored', 'idle'] as const)
@@ -267,6 +313,9 @@ export default function Panel() {
           </Tab>
           <Tab value="office" label="Office" icon="agent">
             <Office s={s} />
+          </Tab>
+          <Tab value="flows" label="Flows" icon="activity">
+            <Flows s={s} />
           </Tab>
           <Tab value="ship" label="Ship" icon="rocket">
             <Ship s={s} />

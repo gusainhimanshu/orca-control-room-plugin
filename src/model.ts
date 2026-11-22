@@ -19,7 +19,18 @@ export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; 
 export type RawRun = { id: string; objective?: string; legacy?: boolean }
 export type RawTask = { id: string; status?: string; title?: string; dispatchId?: string }
 export type RawGate = { id: string; taskId?: string; question?: string; options?: unknown; status?: string; createdAt?: number }
-export type RawWorker = { taskId?: string; dispatchId?: string; workspace?: string }
+export type RawWorker = { taskId?: string; dispatchId?: string; workspace?: string; terminal?: string }
+/** One row of `orca orchestration inbox --json` (concise view: body already cut to 200 characters). */
+export type RawMessage = {
+  id: string
+  type?: string
+  from?: string
+  to?: string
+  subject?: string
+  handled?: boolean
+  body?: string
+  payload?: { taskId?: string; dispatchId?: string } | null
+}
 export type RawDecision = { question?: string; replies?: { label?: string; recommended?: boolean }[] }
 export type RawItemLink = { kind?: string; ref?: string; latest?: string; pr?: { ref?: string; worktreeId?: string } | null }
 /** One row of `orca bot item list --json` (status words as --json prints them: needs_you, in_progress, ...). */
@@ -75,6 +86,19 @@ export type NeedRow = {
 }
 /** `via`: the bot that owns the item, or the Run's objective. */
 export type TaskRow = { key: string; title: string; status: string; via: string }
+/** One inter-agent message. `line` is only the body's first line, cut short; full bodies are never kept. */
+export type FlowRow = {
+  key: string
+  from: string
+  to: string
+  type: string
+  subject: string
+  line: string
+  /** An unanswered question or escalation. */
+  waiting: boolean
+  worktreeId: string | null
+  address: string | null
+}
 export type Checks = 'pass' | 'fail' | 'pending' | 'none'
 export type Review = 'approved' | 'changes' | 'required' | 'none'
 export type PrRow = { number: number; title: string; url: string; draft: boolean; checks: Checks; review: Review }
@@ -112,7 +136,7 @@ export function agentState(a: RawAgent): AgentState {
 }
 
 const firstLine = (s: string | null | undefined, max = 140) => {
-  const line = (s ?? '').trim().split('\n')[0] ?? ''
+  const line = (s ?? '').trim().split(/\r?\n/)[0].trim()
   return line.length > max ? line.slice(0, max - 1) + '…' : line
 }
 
@@ -183,18 +207,24 @@ function itemDecisions(q: RawItem['question']): Decision[] {
   }))
 }
 
-export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Group<TaskRow>[] } {
-  const { products } = input
-  const needsYou: NeedRow[] = []
-  const open: (TaskRow & { product: string })[] = []
+/** taskId -> product and dispatchId -> product, from the workspace each worker runs in. */
+function workerProducts(workers: RawWorker[], products: Map<string, string>) {
   const byTask = new Map<string, string>()
   const byDispatch = new Map<string, string>()
-  for (const w of input.workers) {
+  for (const w of workers) {
     const name = products.get(repoIdOf(w.workspace))
     if (!name) continue
     if (w.taskId) byTask.set(w.taskId, name)
     if (w.dispatchId) byDispatch.set(w.dispatchId, name)
   }
+  return { byTask, byDispatch }
+}
+
+export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Group<TaskRow>[] } {
+  const { products } = input
+  const needsYou: NeedRow[] = []
+  const open: (TaskRow & { product: string })[] = []
+  const { byTask, byDispatch } = workerProducts(input.workers, products)
 
   // Bot items are the owner's queue.
   const itemDispatches = new Set<string>()
@@ -283,6 +313,59 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
       items: g.items.map(({ product: _p, ...row }) => row)
     }))
   }
+}
+
+// ---- Flows: recent inter-agent messages ----
+const ASKS = new Set(['question', 'escalation'])
+const dispatchOf = (handle?: string) => (handle?.startsWith('dispatch:') ? handle.slice('dispatch:'.length) : undefined)
+
+/** Recent messages, newest first (the inbox's own order), grouped by the product their task works in. */
+export function buildFlows(
+  messages: RawMessage[],
+  workers: RawWorker[],
+  products: Map<string, string>,
+  taskTitles: Map<string, string>
+): Group<FlowRow>[] {
+  const { byTask, byDispatch } = workerProducts(workers, products)
+  const byTerminal = new Map(workers.filter((w) => w.terminal).map((w) => [w.terminal!, w]))
+  const byDispatchWorker = new Map(workers.filter((w) => w.dispatchId).map((w) => [w.dispatchId!, w]))
+  const workerOf = (handle?: string) =>
+    (handle && byTerminal.get(handle)) || byDispatchWorker.get(dispatchOf(handle) ?? '') || undefined
+  const label = (handle?: string) => {
+    const h = handle ?? ''
+    const w = workerOf(h)
+    if (w) return (w.taskId && taskTitles.get(w.taskId)) || 'worker'
+    if (h.startsWith('run:')) return 'coordinator'
+    if (h.startsWith('dispatch:') || h.startsWith('structworker_')) return 'worker'
+    if (h.startsWith('orca_session_id:bot-')) return 'bot'
+    return h ? 'agent' : '?'
+  }
+  const rows = messages.map((m) => {
+    const p = m.payload ?? {}
+    const dispatch = p.dispatchId ?? dispatchOf(m.to)
+    const target = workerOf(m.from) ?? workerOf(m.to) ?? (dispatch ? byDispatchWorker.get(dispatch) : undefined)
+    const type = m.type ?? 'message'
+    return {
+      key: m.id,
+      product:
+        (dispatch && byDispatch.get(dispatch)) ||
+        (p.taskId && byTask.get(p.taskId)) ||
+        (target && products.get(repoIdOf(target.workspace))) ||
+        OTHER,
+      from: label(m.from),
+      to: label(m.to),
+      type,
+      subject: firstLine(m.subject, 120),
+      line: firstLine(m.body, 120),
+      waiting: ASKS.has(type) && !m.handled,
+      worktreeId: target?.workspace ?? null,
+      address: target?.terminal ?? null
+    }
+  })
+  return groupBy(rows, (r) => r.product).map((g) => ({
+    product: g.product,
+    items: g.items.map(({ product: _p, ...row }) => row)
+  }))
 }
 
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
