@@ -1,0 +1,76 @@
+{
+  "manifestVersion": 2,
+  "id": "control-room",
+  "name": "Control Room",
+  "version": "0.1.0",
+  "description": "Read-only control room: what waits on you, every agent by product, and each product's pull requests and CI.",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "control-room",
+        "title": "Control Room",
+        "icon": "gauge",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "control-room",
+        "text": "Control Room",
+        "icon": "gauge",
+        "tooltip": "Items waiting on your decision"
+      }
+    ],
+    "events": [
+      { "on": "agent.status.changed" },
+      { "on": "workspace.created" },
+      { "on": "workspace.removed" }
+    ],
+    "settings": [
+      {
+        "key": "notifications",
+        "title": "Stuck-agent notifications",
+        "description": "Show a desktop notification once when an agent waits on you or idles past the threshold, or errors.",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "key": "stuckMinutes",
+        "title": "Stuck threshold (minutes)",
+        "type": "integer",
+        "default": 15,
+        "minimum": 1,
+        "maximum": 1440
+      },
+      {
+        "key": "shipRepos",
+        "title": "Repos to watch on the Ship board",
+        "description": "owner/name, separated by commas. Empty watches every GitHub repo behind your Orca projects.",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "key": "orcaPath",
+        "title": "Orca CLI path",
+        "description": "Empty finds it automatically.",
+        "type": "string",
+        "default": ""
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "workspace:read" },
+    { "kind": "agent:read" },
+    { "kind": "workspace:write" },
+    { "kind": "notifications:show" },
+    { "kind": "storage:own" },
+    { "kind": "settings:own" }
+  ]
+}
