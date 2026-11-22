@@ -39,6 +39,10 @@ export const emptySnapshot = (): Snapshot => ({
   errors: {}
 })
 
+/** A snapshot from storage, over the defaults: one saved by an older version lacks newer fields. */
+export const asSnapshot = (stored: unknown): Snapshot =>
+  stored && typeof stored === 'object' && !Array.isArray(stored) ? { ...emptySnapshot(), ...stored } : emptySnapshot()
+
 declare module 'orca' {
   interface PluginRequests {
     /** The latest snapshot the worker holds. */

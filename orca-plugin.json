@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Read-only control room: what waits on you, every agent by product, each product's pull requests and CI, and pings of the sites you list.",
   "engines": {
     "orca": ">=1.4.259"

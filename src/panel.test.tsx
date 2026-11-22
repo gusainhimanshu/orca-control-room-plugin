@@ -88,3 +88,23 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   assert.deepEqual(view.refusals, [])
   await view.unmount()
 })
+
+test('a snapshot persisted by an older version (no flows, no sites) draws every tab', async () => {
+  const { flows, sites, sitesAt, siteErrors, ...old } = snap
+  void [flows, sites, sitesAt, siteErrors]
+  // The restarted worker cannot answer yet, so only the persisted snapshot is drawn.
+  const host = mockHost({ requests: { 'snapshot.get': () => Promise.reject(new Error('worker starting')) } })
+  const view = await mount(panel, { host, persisted: { plugin: { snapshot: old } } })
+  for (const t of ['queue', 'office', 'flows', 'ship']) await view.select({ role: 'tablist' }, t)
+  assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a persisted snapshot that is not an object is discarded', async () => {
+  const host = mockHost({ requests: { 'snapshot.get': () => Promise.reject(new Error('worker starting')) } })
+  const view = await mount(panel, { host, persisted: { plugin: { snapshot: 'garbage' } } })
+  assert.ok(view.find({ label: 'Reading Orca' }))
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
