@@ -23,7 +23,7 @@ import {
   type Tone
 } from 'orca'
 import type { AgentRow, AgentState, Checks, FlowRow, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
-import { emptySnapshot, type Snapshot } from './protocol'
+import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import type { SiteRow, SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
@@ -41,6 +41,7 @@ const take = (s: Snapshot) => {
 }
 
 export function setup(ctx: PanelContext): void {
+  set(snapshot, asSnapshot(read(snapshot)))
   ctx.subscriptions.push(plugin.on('snapshot', take))
   void plugin.request('snapshot.get').then(take, () => undefined)
 }
