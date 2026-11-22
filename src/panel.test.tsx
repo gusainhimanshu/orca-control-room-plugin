@@ -242,3 +242,56 @@ test('a persisted snapshot that is not an object is discarded', async () => {
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
+
+const groupOf = (view: Awaited<ReturnType<typeof mount>>, id: string) => view.find({ testId: id })?.props as { open: boolean; description: string }
+
+test('a product group collapses and expands, and the state is persisted per tab', async () => {
+  const host = mockHost({ requests: { 'snapshot.get': () => snap } })
+  const view = await mount(panel, { host })
+  await view.select({ role: 'tablist' }, 'office')
+  assert.equal(groupOf(view, 'office:Alpha').open, true)
+  await view.toggle({ testId: 'office:Alpha' })
+  assert.equal(groupOf(view, 'office:Alpha').open, false)
+  // Collapsed, the header keeps its summary.
+  assert.equal(groupOf(view, 'office:Alpha').description, '1 working')
+  assert.deepEqual(view.persisted.plugin.collapsed, { 'office:Alpha': true })
+  // Another tab's group of the same product is its own.
+  await view.select({ role: 'tablist' }, 'queue')
+  assert.equal(groupOf(view, 'queue:Alpha').open, true)
+  await view.select({ role: 'tablist' }, 'office')
+  await view.toggle({ testId: 'office:Alpha' })
+  assert.equal(groupOf(view, 'office:Alpha').open, true)
+  assert.deepEqual(view.persisted.plugin.collapsed, {})
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a remembered collapsed group stays collapsed after a reload; one with something waiting on you is marked', async () => {
+  const host = mockHost({ requests: { 'snapshot.get': () => snap } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'flows:Alpha': true, 'flows:Gone': true }, tab: 'flows' } } })
+  assert.equal(groupOf(view, 'flows:Alpha').open, false)
+  assert.equal(groupOf(view, 'flows:Alpha').description, '1 messages · 1 waiting on you')
+  assert.ok(view.summary().some((l) => l.startsWith('Box warning "Alpha')))
+  // Expanded, there is no marker: the rows show it themselves.
+  await view.toggle({ testId: 'flows:Alpha' })
+  assert.equal(groupOf(view, 'flows:Alpha').description, '1 messages')
+  assert.ok(!view.summary().some((l) => l.startsWith('Box warning')))
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a collapsed Ship card with a site down is marked red', async () => {
+  const host = mockHost({ requests: { 'snapshot.get': () => ({ ...snap, sites: [{ ...snap.sites[0], product: 'Alpha' }] }) } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'ship:Alpha': true }, tab: 'ship' } } })
+  assert.equal(groupOf(view, 'ship:Alpha').description, 'No runs · 0 open · 1 down')
+  assert.ok(view.summary().some((l) => l.startsWith('Box danger "Alpha')))
+  await view.unmount()
+})
+
+test('collapsed state an older or broken version stored is ignored', async () => {
+  const host = mockHost({ requests: { 'snapshot.get': () => snap } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: ['office:Alpha'], tab: 'office' } } })
+  assert.equal(groupOf(view, 'office:Alpha').open, true)
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})

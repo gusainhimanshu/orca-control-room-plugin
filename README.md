@@ -45,6 +45,12 @@ with the site's URL.
   A site written as `Product:Name=url` whose product is an Orca project shows in that product's
   card instead (or in a card of its own when the product has no GitHub repo); the rest stay in
   **Sites**. Bad entries in the setting show inline with the reason.
+- **Collapsible groups** (0.5.0): in every tab each group header (a product; a bot on Overview;
+  *Sites* on Ship) collapses and expands on a click or with the keyboard. A collapsed header keeps
+  its name and summary (*3 open*, the CI run, *2 of 3 up*), and when something inside waits on you,
+  fails or is down it is outlined amber or red and says what (*1 waiting on you*, *1 down*). Groups
+  start expanded; which ones you collapsed is remembered per tab and product across reloads and
+  updates, and a product that is gone is ignored.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
   past the threshold, or errors; and one when a site goes down, and one when it comes back.
   Already-announced events are remembered in plugin storage.
