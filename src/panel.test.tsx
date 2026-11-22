@@ -36,7 +36,10 @@ const snap: Snapshot = {
       ]
     }
   ],
-  ship: [{ product: 'Alpha', repo: 'acme/alpha', prs: [], latestRun: null, error: null }]
+  ship: [{ product: 'Alpha', repo: 'acme/alpha', prs: [], latestRun: null, error: null }],
+  sitesAt: Date.now(),
+  sites: [{ name: 'Shop', url: 'https://shop.example.com/', state: 'down', status: 503, ms: 42, error: null, since: 1, was: 'up' }],
+  siteErrors: ['"oops": write it as Name=https://url']
 }
 
 test('shows the queue, office and ship board; pressing an agent navigates', async () => {
@@ -68,6 +71,9 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
 
   await view.select({ role: 'tablist' }, 'ship')
   assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
+  assert.ok(view.find({ text: 'Down' }))
+  assert.ok(view.find({ text: 'HTTP 503 · 42 ms' }))
+  assert.ok(view.find({ text: 'Sites to ping: "oops": write it as Name=https://url' }))
 
   // A restarted worker's empty snapshot does not wipe the last reading.
   await view.post('snapshot', emptySnapshot())

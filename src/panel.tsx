@@ -24,6 +24,7 @@ import {
 } from 'orca'
 import type { AgentRow, AgentState, Checks, FlowRow, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
+import type { SiteRow, SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
@@ -33,8 +34,10 @@ const take = (s: Snapshot) => {
   // A worker that just started has read nothing yet; keep the last reading over its empty one.
   const last = read(snapshot)
   if (!(s.orcaAt || s.errors.orca || !last.orcaAt)) return
-  // Same for GitHub, which is read less often.
-  set(snapshot, s.ghAt || !last.ghAt ? s : { ...s, ghAt: last.ghAt, ship: last.ship, errors: { ...s.errors, ...(last.errors.gh ? { gh: last.errors.gh } : {}) } })
+  // Same for GitHub and the sites, which are read less often.
+  let next = s.ghAt || !last.ghAt ? s : { ...s, ghAt: last.ghAt, ship: last.ship, errors: { ...s.errors, ...(last.errors.gh ? { gh: last.errors.gh } : {}) } }
+  if (!next.sitesAt && last.sitesAt) next = { ...next, sitesAt: last.sitesAt, sites: last.sites, siteErrors: last.siteErrors }
+  set(snapshot, next)
 }
 
 export function setup(ctx: PanelContext): void {
@@ -63,6 +66,12 @@ const REVIEW: Record<Review, { label: string; tone: Tone }> = {
   changes: { label: 'Changes asked', tone: 'danger' },
   required: { label: 'Review needed', tone: 'warning' },
   none: { label: 'No review', tone: 'neutral' }
+}
+
+const SITE: Record<SiteState, { label: string; tone: Tone }> = {
+  up: { label: 'Up', tone: 'success' },
+  degraded: { label: 'Degraded', tone: 'warning' },
+  down: { label: 'Down', tone: 'danger' }
 }
 
 function SourceError({ text }: { text?: string }) {
@@ -283,10 +292,52 @@ function ShipCard({ r }: { r: ShipRow }) {
   )
 }
 
+function siteDetail(r: SiteRow): string {
+  const answer = r.error ?? (r.status ? `HTTP ${r.status}` : '')
+  return `${answer} · ${r.ms} ms`
+}
+
+function Sites({ s }: { s: Snapshot }) {
+  if (!s.sites.length && !s.siteErrors.length) return null
+  return (
+    <Stack gap="xs">
+      <ProductHeader name="Sites" note={`${s.sites.filter((r) => r.state === 'up').length} of ${s.sites.length} up`} />
+      {s.siteErrors.map((e) => (
+        <SourceError text={`Sites to ping: ${e}`} />
+      ))}
+      {s.sites.length ? (
+        <List label="Sites">
+          {s.sites.map((r) => (
+            <ListItem title={r.name} icon="globe" onPress={() => void shell.openExternal(r.url).catch(() => undefined)}>
+              <Row gap="xs" wrap align="center">
+                <Badge tone={SITE[r.state].tone}>{SITE[r.state].label}</Badge>
+                <Text size="xs" muted>
+                  {siteDetail(r)}
+                </Text>
+                <Text size="xs" muted>
+                  since
+                </Text>
+                <RelativeTime at={r.since} muted />
+              </Row>
+            </ListItem>
+          ))}
+        </List>
+      ) : null}
+    </Stack>
+  )
+}
+
 function Ship({ s }: { s: Snapshot }) {
-  if (!s.ghAt) return <Skeleton lines={4} label="Reading GitHub" />
+  if (!s.ghAt)
+    return (
+      <Stack gap="md">
+        <Sites s={s} />
+        <Skeleton lines={4} label="Reading GitHub" />
+      </Stack>
+    )
   return (
     <Stack gap="md">
+      <Sites s={s} />
       <SourceError text={s.errors.gh} />
       {s.ship.length ? (
         s.ship.map((r) => <ShipCard r={r} />)

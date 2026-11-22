@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # Orca writes these types with `orca plugin types`; CI has no Orca, so it uses the copy in ci/.
+      - name: Orca types
+        run: mkdir -p .orca && cp -r ci/orca-types .orca/types
+      - name: Typecheck
+        run: npx -y -p typescript@5.9.3 tsc -p . --noEmit
+      # The pure tests; src/panel.test.tsx needs Orca's mount() and runs only under `orca plugin test`.
+      - name: Unit tests
+        run: node --import ./ci/register.mjs --test src/model.test.ts src/platform.test.ts src/sites.test.ts
