@@ -28,6 +28,14 @@ const snap: Snapshot = {
       items: [{ key: 'p1', title: 'Fix login', agent: 'claude', workspace: 'main', state: 'working', since: 1, detail: '', worktreeId: 'r1::/w', address: 'term_1' }]
     }
   ],
+  flows: [
+    {
+      product: 'Alpha',
+      items: [
+        { key: 'm1', from: 'Paint the door', to: 'coordinator', type: 'question', subject: 'Which colour?', line: 'Red or blue?', waiting: true, worktreeId: 'r1::/w', address: 'structworker_1' }
+      ]
+    }
+  ],
   ship: [{ product: 'Alpha', repo: 'acme/alpha', prs: [], latestRun: null, error: null }]
 }
 
@@ -50,6 +58,13 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   await view.select({ role: 'tablist' }, 'office')
   await view.press({ label: 'Fix login' })
   assert.deepEqual(navigated, [{ worktreeId: 'r1::/w', address: 'term_1' }])
+
+  await view.select({ role: 'tablist' }, 'flows')
+  assert.ok(view.find({ text: 'Paint the door → coordinator' }))
+  assert.ok(view.find({ text: 'Waiting on you' }))
+  assert.ok(view.find({ text: 'Red or blue?' }))
+  await view.press({ label: 'Which colour?' })
+  assert.deepEqual(navigated[1], { worktreeId: 'r1::/w', address: 'structworker_1' })
 
   await view.select({ role: 'tablist' }, 'ship')
   assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
