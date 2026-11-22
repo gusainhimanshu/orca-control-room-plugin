@@ -7,11 +7,14 @@ import {
   buildQueue,
   buildShipRow,
   checksState,
+  FLOW_RECENT_MS,
   freshAlarms,
+  fromFullInbox,
   githubRepos,
   productNames,
   resolveRefusal,
   reviewState,
+  running,
   stuckAlarms,
   type RawWorktree
 } from './model'
@@ -249,7 +252,7 @@ test('flows: newest first by product, first body line only, open asks wait on yo
   const long = 'x'.repeat(300)
   const flows = buildFlows(
     [
-      { id: 'm1', type: 'question', from: 'structworker_aaa', to: 'run:run_1', subject: 'Which colour?', handled: false, body: 'Red or blue?\nSecret second line', payload: { taskId: 'task_a', dispatchId: 'ctx_a' } },
+      { id: 'm1', type: 'question', from: 'structworker_aaa', to: 'run:run_1', subject: 'Which colour?', handled: false, body: 'Red or blue?\nSecret second line', payload: { taskId: 'task_a', dispatchId: 'ctx_a' }, createdAt: '2026-01-02T03:04:05Z' },
       { id: 'm2', type: 'status', from: 'orca_session_id:bot-group-member-1', to: 'dispatch:ctx_b', subject: 'Go ahead', handled: true, body: long },
       { id: 'm3', type: 'escalation', from: 'orca_session_id:abc', to: 'run:run_9', subject: 'Stuck', handled: true, body: 'Done\r\nnow' },
       { id: 'm4', type: 'worker_done', from: 'structworker_aaa', to: 'run:run_1', subject: 'Finished', handled: false, body: '' }
@@ -275,12 +278,49 @@ test('flows: newest first by product, first body line only, open asks wait on yo
     subject: 'Which colour?',
     line: 'Red or blue?',
     waiting: true,
+    at: Date.UTC(2026, 0, 2, 3, 4, 5),
     worktreeId: 'r1::/w/alpha',
     address: 'structworker_aaa'
   })
+  assert.equal(m4.at, 0) // no send time known
   assert.equal(m4.waiting, false) // only questions and escalations wait on you
   const m2 = flows[1].items[0]
   assert.deepEqual([m2.from, m2.to, m2.worktreeId, m2.address, m2.line.length], ['bot', 'worker', 'r2::/w/beta', null, 120])
   const m3 = flows[2].items[0]
   assert.deepEqual([m3.from, m3.waiting, m3.line, m3.worktreeId], ['agent', false, 'Done', null])
+})
+
+test('a full inbox row reads as the concise one, with its send time; a broken payload is dropped', () => {
+  const row = { id: 'm1', type: 'question', from_handle: 'structworker_a', to_handle: 'run:run_1', subject: 'Hm?', body: 'b', read: 0, payload: '{"taskId":"t1","dispatchId":"ctx_1","reportPath":"/x"}', created_at: '2026-01-02T03:04:05Z' }
+  assert.deepEqual(fromFullInbox(row), {
+    id: 'm1',
+    type: 'question',
+    from: 'structworker_a',
+    to: 'run:run_1',
+    subject: 'Hm?',
+    handled: false,
+    body: 'b',
+    payload: { taskId: 't1', dispatchId: 'ctx_1' },
+    createdAt: '2026-01-02T03:04:05Z'
+  })
+  assert.deepEqual([fromFullInbox({ ...row, read: 1 }).handled, fromFullInbox({ ...row, payload: '{oops' }).payload], [true, null])
+})
+
+test('running: what a collapsed group still shows', () => {
+  assert.deepEqual((['working', 'waiting', 'errored', 'idle'] as const).map((state) => running.agent({ state })), [true, true, true, false])
+  assert.deepEqual(['in progress', 'dispatched', 'blocked', 'planned', 'pending', 'ready', 'idle'].map((status) => running.task({ status })), [true, true, true, false, false, false, false])
+  assert.equal(running.pr({ checks: 'pending', review: 'approved' }), true)
+  assert.equal(running.pr({ checks: 'fail', review: 'none' }), true)
+  assert.equal(running.pr({ checks: 'pass', review: 'changes' }), true)
+  assert.equal(running.pr({ checks: 'pass', review: 'required' }), false)
+  const run = { name: 'CI', url: 'u', at: 1 }
+  assert.deepEqual([running.run(null), running.run({ ...run, result: 'pass' }), running.run({ ...run, result: 'running' }), running.run({ ...run, result: 'fail' })], [false, false, true, true])
+  assert.deepEqual(['up', 'degraded', 'down'].map((state) => running.site({ state })), [false, true, true])
+  const now = 10 * FLOW_RECENT_MS
+  assert.equal(running.flow({ waiting: true, at: 0 }, now), true)
+  assert.equal(running.flow({ waiting: false, at: now - FLOW_RECENT_MS + 1 }, now), true)
+  assert.equal(running.flow({ waiting: false, at: now - FLOW_RECENT_MS }, now), false)
+  assert.equal(running.flow({ waiting: false, at: 0 }, now), false)
+  assert.deepEqual(['working', 'waiting', 'errored', 'idle', 'done'].map((state) => running.worker({ state })), [false, true, true, false, false])
+  assert.deepEqual(['Build login', 'Nothing open', ''].map((doing) => running.doing({ doing })), [true, false, false])
 })

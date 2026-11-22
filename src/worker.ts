@@ -10,6 +10,7 @@ import {
   buildOffice,
   buildQueue,
   buildShipRow,
+  fromFullInbox,
   freshAlarms,
   githubRepos,
   productNames,
@@ -18,6 +19,7 @@ import {
   type BotItems,
   type RawGate,
   type RawItem,
+  type RawFullMessage,
   type RawMessage,
   type RawPr,
   type RawRepo,
@@ -119,14 +121,15 @@ export default function activate(orca: OrcaWorkerApi): void {
       } catch (e) {
         runsError = message(e)
       }
-      // Flows: the last messages across every mailbox. The concise view only previews bodies.
+      // Flows: the last messages across every mailbox.
       let flows = snap.flows
       let flowsError: string | undefined
       let messages: RawMessage[] = []
       const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
       try {
-        const inbox = await orcaRead<{ messages: RawMessage[] }>(bin, 'orchestration inbox', ['--limit', String(FLOW_LIMIT)])
-        messages = inbox.messages ?? []
+        // --full: the concise view has no send time, which a collapsed Flows group needs.
+        const inbox = await orcaRead<{ messages: RawFullMessage[] }>(bin, 'orchestration inbox', ['--limit', String(FLOW_LIMIT), '--full'])
+        messages = (inbox.messages ?? []).map(fromFullInbox)
         flows = buildFlows(messages, workers, products, titles)
       } catch (e) {
         flowsError = message(e)

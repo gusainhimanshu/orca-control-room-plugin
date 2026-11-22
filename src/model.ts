@@ -20,7 +20,7 @@ export type RawRun = { id: string; objective?: string; legacy?: boolean }
 export type RawTask = { id: string; status?: string; title?: string; dispatchId?: string }
 export type RawGate = { id: string; taskId?: string; question?: string; options?: unknown; status?: string; createdAt?: number }
 export type RawWorker = { taskId?: string; dispatchId?: string; workspace?: string; terminal?: string }
-/** One row of `orca orchestration inbox --json` (concise view: body already cut to 200 characters). */
+/** One inbox message in the concise shape (`orca orchestration inbox --json`); the worker reads `--full` rows through `fromFullInbox`. */
 export type RawMessage = {
   id: string
   type?: string
@@ -30,6 +30,19 @@ export type RawMessage = {
   handled?: boolean
   body?: string
   payload?: { taskId?: string; dispatchId?: string } | null
+  createdAt?: string
+}
+/** One row of `orca orchestration inbox --full --json`: the only view that says when a message was sent. */
+export type RawFullMessage = {
+  id: string
+  type?: string
+  from_handle?: string
+  to_handle?: string
+  subject?: string
+  body?: string
+  read?: number | boolean
+  payload?: string | { taskId?: string; dispatchId?: string } | null
+  created_at?: string
 }
 export type RawDecision = { question?: string; replies?: { label?: string; recommended?: boolean }[] }
 export type RawItemLink = {
@@ -106,6 +119,8 @@ export type FlowRow = {
   line: string
   /** An unanswered question or escalation. */
   waiting: boolean
+  /** When it was sent (ms), 0 when unknown. */
+  at: number
   worktreeId: string | null
   address: string | null
 }
@@ -387,6 +402,7 @@ export function buildFlows(
       subject: firstLine(m.subject, 120),
       line: firstLine(m.body, 120),
       waiting: ASKS.has(type) && !m.handled,
+      at: Date.parse(m.createdAt ?? '') || 0,
       worktreeId: target?.workspace ?? null,
       address: target?.terminal ?? null
     }
@@ -395,6 +411,35 @@ export function buildFlows(
     product: g.product,
     items: g.items.map(({ product: _p, ...row }) => row)
   }))
+}
+
+/** A full inbox row in the concise shape the rest reads; only the body's first line is ever kept downstream. */
+export function fromFullInbox(m: RawFullMessage): RawMessage {
+  let payload: RawMessage['payload'] = null
+  try {
+    const p = typeof m.payload === 'string' ? JSON.parse(m.payload) : m.payload
+    if (p && typeof p === 'object') payload = { taskId: p.taskId, dispatchId: p.dispatchId }
+  } catch {
+    // An unreadable payload only loses the product a message is grouped under.
+  }
+  return { id: m.id, type: m.type, from: m.from_handle, to: m.to_handle, subject: m.subject, handled: !!m.read, body: m.body, payload, createdAt: m.created_at }
+}
+
+/** How long a message stays in a collapsed Flows group. */
+export const FLOW_RECENT_MS = 15 * 60_000
+const ACTIVE_TASK = new Set(['in progress', 'in_progress', 'dispatched', 'blocked', 'running'])
+
+/** What a collapsed group still shows: rows that are running, waiting on you or failing. */
+export const running = {
+  agent: (a: Pick<AgentRow, 'state'>) => a.state !== 'idle',
+  task: (t: Pick<TaskRow, 'status'>) => ACTIVE_TASK.has(t.status.toLowerCase()),
+  pr: (p: Pick<PrRow, 'checks' | 'review'>) => p.checks === 'pending' || p.checks === 'fail' || p.review === 'changes',
+  run: (r: ShipRow['latestRun']) => !!r && r.result !== 'pass',
+  site: (r: { state: string }) => r.state !== 'up',
+  flow: (f: Pick<FlowRow, 'waiting' | 'at'>, now: number) => f.waiting || (f.at > 0 && now - f.at < FLOW_RECENT_MS),
+  worker: (w: { state: string }) => w.state === 'waiting' || w.state === 'errored',
+  // buildOverview says 'Nothing open' when a bot has nothing in progress and nothing waiting on you.
+  doing: (b: { doing: string }) => !!b.doing && b.doing !== 'Nothing open'
 }
 
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
