@@ -41,6 +41,8 @@ export type RawItem = {
   status?: string
   question?: { text?: string; gist?: string; decisions?: RawDecision[] } | null
   links?: RawItemLink[]
+  /** The bot chat the item lives in; its agent's address is `orca_session_id:<id>`. */
+  chat?: { id?: string } | null
   lastActivityAt?: number
   updatedAt?: number
 }
@@ -228,6 +230,7 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
 
   // Bot items are the owner's queue.
   const itemDispatches = new Set<string>()
+  const agents = new Map(input.office.flatMap((g) => g.items.map((a) => [a.address, a] as const)))
   for (const { bot, items } of input.items) {
     const mapped = items.map((i) => itemProduct(i, input, byDispatch))
     // An item that links nothing belongs to the product the bot's other items work in.
@@ -242,6 +245,8 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
       const title = item.title || `#${item.number ?? item.uid}`
       if (status === 'needs_you') {
         const q = item.question
+        // The bot's chat, when Orca shows it as an agent: pressing the item (or an option) goes there.
+        const chat = item.chat?.id ? agents.get(`orca_session_id:${item.chat.id}`) : undefined
         needsYou.push({
           key: `item:${item.uid}`,
           kind: 'item',
@@ -251,8 +256,8 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
           question: firstLine(q?.gist || q?.text, 300),
           decisions: itemDecisions(q),
           since: item.lastActivityAt ?? item.updatedAt ?? null,
-          worktreeId: null,
-          address: null
+          worktreeId: chat?.worktreeId ?? null,
+          address: chat?.address ?? null
         })
       } else {
         open.push({ key: `item:${item.uid}`, product, title, status: STATUS_WORD[status] ?? status, via: bot })
@@ -313,6 +318,22 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
       items: g.items.map(({ product: _p, ...row }) => row)
     }))
   }
+}
+
+// ---- Answering a decision gate from the panel ----
+export const MAX_RESOLUTION = 2_000
+
+/**
+ * Why a `gate.resolve` request must not be sent, or null when it may: the setting allows it, the gate
+ * is one the owner sees as waiting right now, and the answer is non-empty text of sane length.
+ */
+export function resolveRefusal(needsYou: NeedRow[], allowed: boolean, gateId: unknown, resolution: unknown): string | null {
+  if (!allowed) return 'Answering from the panel is turned off in Settings.'
+  if (typeof gateId !== 'string' || !needsYou.some((n) => n.kind === 'gate' && n.key === `gate:${gateId}`))
+    return 'That decision is no longer waiting on you.'
+  if (typeof resolution !== 'string' || !resolution.trim()) return 'Write an answer first.'
+  if (resolution.length > MAX_RESOLUTION) return `Keep the answer under ${MAX_RESOLUTION} characters.`
+  return null
 }
 
 // ---- Flows: recent inter-agent messages ----

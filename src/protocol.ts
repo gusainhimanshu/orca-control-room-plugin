@@ -24,6 +24,8 @@ export type Snapshot = {
   siteErrors: string[]
   /** Every Orca project's name: a `Product:Name=url` site whose product is one of these shows in its group. */
   projects: string[]
+  /** The "Allow answering from the panel" setting: decision gates get answer buttons. */
+  allowAnswer: boolean
   errors: SourceErrors
 }
 
@@ -39,6 +41,7 @@ export const emptySnapshot = (): Snapshot => ({
   sites: [],
   siteErrors: [],
   projects: [],
+  allowAnswer: false,
   errors: {}
 })
 
@@ -52,6 +55,8 @@ declare module 'orca' {
     'snapshot.get': { output: Snapshot }
     /** Navigation only: focus an agent's terminal, else show its workspace. */
     'navigate': { input: { worktreeId: string; address?: string | null }; output: { ok: boolean } }
+    /** The one write: resolve a decision gate the owner confirmed in the panel. */
+    'gate.resolve': { input: { gateId: string; resolution: string }; output: { ok: boolean; error?: string } }
   }
   interface PluginPanelEvents {
     /** Posted to every open panel after each reading round. */

@@ -40,7 +40,35 @@ const snap: Snapshot = {
   sitesAt: Date.now(),
   sites: [{ name: 'Shop', url: 'https://shop.example.com/', state: 'down', status: 503, ms: 42, error: null, since: 1, was: 'up' }],
   siteErrors: ['"oops": write it as Name=https://url'],
-  projects: ['Alpha']
+  projects: ['Alpha'],
+  allowAnswer: true
+}
+
+const gate = {
+  key: 'gate:g1',
+  kind: 'gate' as const,
+  product: 'Alpha',
+  title: 'Ship it',
+  from: null,
+  question: 'Deploy now?',
+  decisions: [{ prompt: '', options: ['deploy', 'wait'] }],
+  since: 2,
+  worktreeId: null,
+  address: null
+}
+
+/** A panel over `s` that records every gate.resolve and navigate request it gets. */
+async function withGate(s: Snapshot, answer: (input: unknown) => { ok: boolean; error?: string } = () => ({ ok: true })) {
+  const sent: unknown[] = []
+  const navigated: unknown[] = []
+  const host = mockHost({
+    requests: {
+      'snapshot.get': () => s,
+      'gate.resolve': (input) => (sent.push(input), answer(input)),
+      navigate: (input) => (navigated.push(input), { ok: true })
+    }
+  })
+  return { view: await mount(panel, { host }), sent, navigated }
 }
 
 test('shows the queue, office and ship board; pressing an agent navigates', async () => {
@@ -87,6 +115,52 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   assert.ok(view.find({ text: 'CLI down' }))
   assert.deepEqual(view.errors, [])
   assert.deepEqual(view.refusals, [])
+  await view.unmount()
+})
+
+test('a gate option asks for confirmation first; Cancel sends nothing; Confirm sends it once', async () => {
+  const { view, sent } = await withGate({ ...snap, needsYou: [gate] })
+  await view.press({ role: 'button', text: 'deploy' })
+  assert.ok(view.find({ text: "Send 'deploy' to the coordinator?" }))
+  assert.deepEqual(sent, [])
+  await view.press({ role: 'button', text: 'Cancel' })
+  assert.equal(view.find({ text: "Send 'deploy' to the coordinator?" }), null)
+  assert.deepEqual(sent, [])
+
+  await view.press({ role: 'button', text: 'wait' })
+  await view.press({ role: 'button', text: 'Confirm' })
+  assert.deepEqual(sent, [{ gateId: 'g1', resolution: 'wait' }])
+  assert.ok(view.find({ text: "Sent 'wait'." }))
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a typed gate answer also needs confirming, and a refusal shows inline', async () => {
+  const { view, sent } = await withGate({ ...snap, needsYou: [gate] }, () => ({ ok: false, error: 'gate already resolved' }))
+  await view.type({ label: 'Answer: Ship it' }, '  after lunch  ')
+  await view.press({ role: 'button', text: 'Send' })
+  assert.deepEqual(sent, [])
+  await view.press({ role: 'button', text: 'Confirm' })
+  assert.deepEqual(sent, [{ gateId: 'g1', resolution: 'after lunch' }])
+  assert.ok(view.find({ text: 'Not sent: gate already resolved' }))
+  await view.unmount()
+})
+
+test('with answering turned off, a gate shows its options as labels and nothing can be sent', async () => {
+  const { view, sent } = await withGate({ ...snap, allowAnswer: false, needsYou: [gate] })
+  assert.ok(view.find({ text: 'deploy' }))
+  assert.equal(view.findAll({ role: 'button' }).filter((b) => /deploy|wait|Send|Confirm/.test(b.text ?? '')).length, 0)
+  assert.deepEqual(sent, [])
+  await view.unmount()
+})
+
+test("a bot item's options open the bot's chat and never send an answer", async () => {
+  const item = { ...snap.needsYou[0], worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1' }
+  const { view, sent, navigated } = await withGate({ ...snap, needsYou: [item] })
+  await view.press({ role: 'button', text: 'no' })
+  assert.deepEqual(navigated, [{ worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1' }])
+  assert.equal(view.find({ text: "Send 'no' to the coordinator?" }), null)
+  assert.deepEqual(sent, [])
   await view.unmount()
 })
 

@@ -10,6 +10,7 @@ import {
   freshAlarms,
   githubRepos,
   productNames,
+  resolveRefusal,
   reviewState,
   stuckAlarms,
   type RawWorktree
@@ -146,6 +147,45 @@ test('queue: bot items first; Runs add gates and untracked tasks; waiting agents
       ['Other', ['Orphan (ready, Loose)']]
     ]
   )
+})
+
+test("a needs-you item navigates to its bot's chat when Orca shows that chat as an agent", () => {
+  const office = buildOffice(
+    [{ worktreeId: 'f::/bots', repoId: 'f', agents: [{ paneKey: 'b1', address: 'orca_session_id:bot-chat-1', state: 'waiting' }] }],
+    products
+  )
+  const q = buildQueue({
+    products,
+    repoProducts: new Map(),
+    office,
+    workers: [],
+    runs: [],
+    items: [
+      {
+        bot: 'Helper',
+        items: [
+          { uid: 'i1', status: 'needs_you', chat: { id: 'bot-chat-1' } },
+          { uid: 'i2', status: 'needs_you', chat: { id: 'bot-chat-gone' } }
+        ]
+      }
+    ]
+  })
+  const byKey = new Map(q.needsYou.map((n) => [n.key, n]))
+  assert.deepEqual([byKey.get('item:i1')?.worktreeId, byKey.get('item:i1')?.address], ['f::/bots', 'orca_session_id:bot-chat-1'])
+  assert.deepEqual([byKey.get('item:i2')?.worktreeId, byKey.get('item:i2')?.address], [null, null])
+})
+
+test('a gate answer is refused unless allowed, still waiting, and sane text', () => {
+  const gate = { key: 'gate:g1', kind: 'gate' as const, product: 'A', title: 'T', from: null, question: 'Q', decisions: [], since: null, worktreeId: null, address: null }
+  const item = { ...gate, key: 'item:g2', kind: 'item' as const }
+  assert.equal(resolveRefusal([gate], true, 'g1', 'yes'), null)
+  assert.match(resolveRefusal([gate], false, 'g1', 'yes') ?? '', /turned off/)
+  assert.match(resolveRefusal([gate], true, 'g9', 'yes') ?? '', /no longer waiting/)
+  // An item's uid is never treated as a gate.
+  assert.match(resolveRefusal([item], true, 'g2', 'yes') ?? '', /no longer waiting/)
+  assert.match(resolveRefusal([gate], true, 'g1', '   ') ?? '', /Write an answer/)
+  assert.match(resolveRefusal([gate], true, 'g1', 42) ?? '', /Write an answer/)
+  assert.match(resolveRefusal([gate], true, 'g1', 'x'.repeat(2_001)) ?? '', /under 2000/)
 })
 
 test('checks and review states', () => {

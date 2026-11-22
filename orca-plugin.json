@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.3.1",
-  "description": "Read-only control room: what waits on you, every agent by product, each product's pull requests and CI, and pings of the sites you list.",
+  "version": "0.4.0",
+  "description": "Control room: who hands work to whom, what waits on you (decision gates answered after a confirm), every agent by product, each product's pull requests and CI, and pings of the sites you list.",
   "engines": {
     "orca": ">=1.4.259"
   },
@@ -63,6 +63,13 @@
         "type": "string",
         "multiline": true,
         "default": ""
+      },
+      {
+        "key": "allowAnswer",
+        "title": "Allow answering from the panel",
+        "description": "Decision gates waiting on you get answer buttons in the Queue. Nothing is sent until you confirm. Bot items cannot be answered from the panel; their options open the bot's chat.",
+        "type": "boolean",
+        "default": true
       },
       {
         "key": "orcaPath",
