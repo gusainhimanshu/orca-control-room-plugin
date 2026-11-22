@@ -30,4 +30,4 @@ jobs:
         run: npx -y -p typescript@5.9.3 tsc -p . --noEmit
       # The pure tests; src/panel.test.tsx needs Orca's mount() and runs only under `orca plugin test`.
       - name: Unit tests
-        run: node --import ./ci/register.mjs --test src/model.test.ts src/platform.test.ts src/sites.test.ts
+        run: node --import ./ci/register.mjs --test src/model.test.ts src/overview.test.ts src/platform.test.ts src/sites.test.ts

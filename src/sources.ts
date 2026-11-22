@@ -1,4 +1,5 @@
-// The only commands this plugin ever runs: a fixed allow-list of read-only `orca` and `gh` reads.
+// The only commands this plugin ever runs: a fixed allow-list of read-only `orca` and `gh` reads,
+// plus one write, resolving a decision gate, sent only after the owner confirms it in the panel.
 import { runFile } from './platform'
 
 const ORCA_READS = new Set([
@@ -12,11 +13,22 @@ const ORCA_READS = new Set([
   'orchestration worker-list',
   'orchestration inbox'
 ])
+const ORCA_WRITES = new Set(['orchestration gate-resolve'])
 const GH_READS = new Set(['pr list', 'run list'])
 
 /** Runs one allow-listed `orca <command> ... --json` and answers its `result`. */
 export async function orcaRead<T>(bin: string, command: string, extra: string[] = []): Promise<T> {
   if (!ORCA_READS.has(command)) throw new Error(`not an allowed read: orca ${command}`)
+  return orcaRun<T>(bin, command, extra)
+}
+
+/** The one write: `orca orchestration gate-resolve`. No `--from`: the CLI acts as the person, not an agent. */
+export async function orcaWrite<T>(bin: string, command: string, extra: string[]): Promise<T> {
+  if (!ORCA_WRITES.has(command)) throw new Error(`not an allowed write: orca ${command}`)
+  return orcaRun<T>(bin, command, extra)
+}
+
+async function orcaRun<T>(bin: string, command: string, extra: string[]): Promise<T> {
   const out = await runFile(bin, [...command.split(' '), ...extra, '--json'])
   // Some commands print a trailing `error: ...` line after the JSON on failure.
   const json = JSON.parse(out.slice(0, out.lastIndexOf('}') + 1)) as { ok?: boolean; result?: T; error?: { message?: string } }

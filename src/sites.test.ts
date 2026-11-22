@@ -1,7 +1,7 @@
 // Site pings with invented URLs and a fake fetch: no real request is ever made.
 import { assert, test } from 'orca/testing'
 import { freshAlarms } from './model'
-import { classify, nextSiteRows, parseSites, ping, siteAlarms, siteNotice, type FetchLike, type SiteRow } from './sites'
+import { classify, nextSiteRows, parseSites, ping, siteAlarms, siteGroup, siteNotice, type FetchLike, type SiteRow } from './sites'
 
 test('parses Name=url entries split by commas and new lines; bad entries come back as errors', () => {
   const r = parseSites(' Shop=https://shop.example.com ,\nDocs = http://docs.example.com/a?b=c\n\n')
@@ -20,6 +20,29 @@ test('parses Name=url entries split by commas and new lines; bad entries come ba
   assert.match(bad.errors[5], /used twice/)
 
   assert.deepEqual(parseSites(''), { sites: [], errors: [] })
+})
+
+test('Product:Name=url entries carry their product; plain Name=url still works', () => {
+  const r = parseSites('Alpha:Shop=https://shop.example.com\nShop=https://other.example.com, beta : Docs = https://docs.example.com:8443/x')
+  assert.deepEqual(r.sites, [
+    { product: 'Alpha', name: 'Shop', url: 'https://shop.example.com/' },
+    // Same name in another group is fine.
+    { name: 'Shop', url: 'https://other.example.com/' },
+    { product: 'beta', name: 'Docs', url: 'https://docs.example.com:8443/x' }
+  ])
+  assert.deepEqual(r.errors, [])
+  const bad = parseSites(':Shop=https://a.example.com, Alpha:=https://b.example.com, Alpha:A=https://c.example.com, Alpha:A=https://d.example.com')
+  assert.deepEqual(bad.sites, [{ product: 'Alpha', name: 'A', url: 'https://c.example.com/' }])
+  assert.equal(bad.errors.length, 3)
+  assert.match(bad.errors[0], /Product:Name=https:\/\/url/)
+  assert.match(bad.errors[2], /used twice/)
+})
+
+test('a site joins the group of the Orca project its product names, else the Sites group', () => {
+  const projects = ['Alpha', 'Beta']
+  assert.equal(siteGroup({ product: 'alpha' }, projects), 'Alpha')
+  assert.equal(siteGroup({ product: 'Gamma' }, projects), null)
+  assert.equal(siteGroup({}, projects), null)
 })
 
 test('classifies up, degraded and down', () => {

@@ -1,7 +1,8 @@
 // The worker reads Orca and GitHub, and pings the sites the user lists, on a fixed clock, builds
 // the view model and pushes it to open panels, the status bar and (for stuck agents and sites that
-// go down or come back) desktop notifications. It never writes to an
-// agent, terminal or bot: the only actions are focusing a terminal or showing a workspace.
+// go down or come back) desktop notifications. It never writes to an agent, terminal or bot. Its
+// actions: focusing a terminal, showing a workspace, and resolving a decision gate the owner
+// confirmed in the panel (only while "Allow answering from the panel" is on).
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   alarmNotice,
@@ -12,6 +13,7 @@ import {
   freshAlarms,
   githubRepos,
   productNames,
+  resolveRefusal,
   stuckAlarms,
   type BotItems,
   type RawGate,
@@ -26,10 +28,11 @@ import {
   type RawWorktree,
   type RunData
 } from './model'
+import { buildOverview } from './overview'
 import { resolveTool } from './platform'
 import { emptySnapshot, type Snapshot } from './protocol'
 import { nextSiteRows, parseSites, ping, siteAlarms, siteNotice } from './sites'
-import { ghRead, orcaRead, PR_FIELDS, RUN_FIELDS } from './sources'
+import { ghRead, orcaRead, orcaWrite, PR_FIELDS, RUN_FIELDS } from './sources'
 
 export const ORCA_EVERY_MS = 5_000
 export const GH_EVERY_MS = 60_000
@@ -37,7 +40,7 @@ export const SITES_EVERY_MS = 60_000
 const FLOW_LIMIT = 40
 const SEEN_KEY = 'alarms.seen'
 
-type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string }
+type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string; allowAnswer: boolean }
 
 async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
   const s = await orca.settings.get()
@@ -46,7 +49,8 @@ async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
     stuckMinutes: typeof s.stuckMinutes === 'number' && s.stuckMinutes > 0 ? s.stuckMinutes : 15,
     shipRepos: typeof s.shipRepos === 'string' ? s.shipRepos : '',
     orcaPath: typeof s.orcaPath === 'string' ? s.orcaPath : '',
-    sites: typeof s.sites === 'string' ? s.sites : ''
+    sites: typeof s.sites === 'string' ? s.sites : '',
+    allowAnswer: s.allowAnswer !== false
   }
 }
 
@@ -118,16 +122,19 @@ export default function activate(orca: OrcaWorkerApi): void {
       // Flows: the last messages across every mailbox. The concise view only previews bodies.
       let flows = snap.flows
       let flowsError: string | undefined
+      let messages: RawMessage[] = []
+      const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
       try {
         const inbox = await orcaRead<{ messages: RawMessage[] }>(bin, 'orchestration inbox', ['--limit', String(FLOW_LIMIT)])
-        const titles = new Map(runs.flatMap((r) => r.tasks.map((t) => [t.id, t.title ?? t.id] as [string, string])))
-        flows = buildFlows(inbox.messages ?? [], workers, products, titles)
+        messages = inbox.messages ?? []
+        flows = buildFlows(messages, workers, products, titles)
       } catch (e) {
         flowsError = message(e)
       }
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
-      publish({ orcaAt: Date.now(), office, flows, ...queue, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
+      const overview = buildOverview({ items, workers, office, messages, taskTitles: titles })
+      publish({ orcaAt: Date.now(), office, flows, overview, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {
@@ -234,6 +241,23 @@ export default function activate(orca: OrcaWorkerApi): void {
     // Chats and closed terminals: show the workspace they live in.
     const r = await orca.host.call('workspace.open', { workspaceId: worktreeId }).catch(() => null)
     return { ok: !!r?.opened }
+  })
+
+  orca.panels.handle('gate.resolve', async ({ gateId, resolution }) => {
+    // Checked again here, against fresh settings and the latest reading: the panel's view may be stale.
+    const settings = await readSettings(orca)
+    const refusal = resolveRefusal(snap.needsYou, settings.allowAnswer, gateId, resolution)
+    if (refusal) return { ok: false, error: refusal }
+    const bin = resolveTool('orca', settings.orcaPath)
+    if (!bin) return { ok: false, error: 'Orca CLI not found. Set its path in Settings.' }
+    try {
+      await orcaWrite(bin, 'orchestration gate-resolve', ['--id', gateId, '--resolution', resolution.trim()])
+      orca.log(`resolved gate ${gateId} from the panel`)
+      enqueue(orcaRound)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: message(e) }
+    }
   })
 
   stop = () => {

@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.3.1",
-  "description": "Read-only control room: what waits on you, every agent by product, each product's pull requests and CI, and pings of the sites you list.",
+  "version": "0.4.0",
+  "description": "Control room: who hands work to whom, what waits on you (decision gates answered after a confirm), every agent by product, each product's pull requests and CI, and pings of the sites you list.",
   "engines": {
     "orca": ">=1.4.259"
   },
@@ -59,10 +59,17 @@
       {
         "key": "sites",
         "title": "Sites to ping",
-        "description": "Name=https://url entries, separated by commas or new lines. Each is requested once a minute (5 s timeout, no cookies). Empty: no Sites section and no network requests.",
+        "description": "Name=https://url or Product:Name=https://url entries, separated by commas or new lines. A site whose Product is an Orca project shows with that product on Ship. Each is requested once a minute (5 s timeout, no cookies). Empty: no Sites section and no network requests.",
         "type": "string",
         "multiline": true,
         "default": ""
+      },
+      {
+        "key": "allowAnswer",
+        "title": "Allow answering from the panel",
+        "description": "Decision gates waiting on you get answer buttons in the Queue. Nothing is sent until you confirm. Bot items cannot be answered from the panel; their options open the bot's chat.",
+        "type": "boolean",
+        "default": true
       },
       {
         "key": "orcaPath",
