@@ -25,12 +25,21 @@ import {
 import type { AgentRow, AgentState, Checks, Group, NeedRow, Review, ShipRow, TaskRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
 
-const snapshot = atom<Snapshot>(emptySnapshot())
+// Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
+const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
 const tab = atom('tab', 'queue', { persist: 'plugin' })
 
+const take = (s: Snapshot) => {
+  // A worker that just started has read nothing yet; keep the last reading over its empty one.
+  const last = read(snapshot)
+  if (!(s.orcaAt || s.errors.orca || !last.orcaAt)) return
+  // Same for GitHub, which is read less often.
+  set(snapshot, s.ghAt || !last.ghAt ? s : { ...s, ghAt: last.ghAt, ship: last.ship, errors: { ...s.errors, ...(last.errors.gh ? { gh: last.errors.gh } : {}) } })
+}
+
 export function setup(ctx: PanelContext): void {
-  ctx.subscriptions.push(plugin.on('snapshot', (s) => set(snapshot, s)))
-  void plugin.request('snapshot.get').then((s) => set(snapshot, s), () => undefined)
+  ctx.subscriptions.push(plugin.on('snapshot', take))
+  void plugin.request('snapshot.get').then(take, () => undefined)
 }
 
 const go = (worktreeId: string | null, address: string | null) => () => {
@@ -62,6 +71,17 @@ function SourceError({ text }: { text?: string }) {
       <Text size="xs">{text}</Text>
     </Callout>
   ) : null
+}
+
+function ProductHeader({ name, note }: { name: string; note: string }) {
+  return (
+    <Row gap="xs" align="center" wrap>
+      <Text weight="semibold">{name}</Text>
+      <Text size="xs" muted>
+        {note}
+      </Text>
+    </Row>
+  )
 }
 
 function NeedItem({ n }: { n: NeedRow }) {
@@ -109,13 +129,15 @@ function Queue({ s }: { s: Snapshot }) {
       )}
       <Heading level={3}>Open work</Heading>
       {s.open.length ? (
-        s.open.map((g: Group<TaskRow>) => (
-          <List label={`${g.product} · ${g.items.length}`}>
+        // Header and list are siblings: nesting the list in another Stack lets long rows widen the panel.
+        s.open.flatMap((g: Group<TaskRow>) => [
+          <ProductHeader name={g.product} note={`${g.items.length} open`} />,
+          <List label={g.product}>
             {g.items.map((t) => (
               <ListItem title={t.title} description={`${t.status} · ${t.run}`} icon="layers" />
             ))}
           </List>
-        ))
+        ])
       ) : (
         <Text muted size="sm">
           No open tasks in any Run.
@@ -137,8 +159,9 @@ function Office({ s }: { s: Snapshot }) {
   if (!s.office.length) return <EmptyState title="No agents running" icon="agent" />
   return (
     <Stack gap="md">
-      {s.office.map((g) => (
-        <List label={`${g.product} · ${counts(g.items)}`}>
+      {s.office.flatMap((g) => [
+        <ProductHeader name={g.product} note={counts(g.items)} />,
+        <List label={g.product}>
           {g.items.map((a) => (
             <ListItem title={a.title} icon="agent" onPress={go(a.worktreeId, a.address)}>
               <Stack gap="xs">
@@ -158,7 +181,7 @@ function Office({ s }: { s: Snapshot }) {
             </ListItem>
           ))}
         </List>
-      ))}
+      ])}
     </Stack>
   )
 }
@@ -184,7 +207,10 @@ function ShipCard({ r }: { r: ShipRow }) {
       ) : r.prs.length ? (
         <List label={`${r.repo} · ${r.prs.length} open`}>
           {r.prs.map((p) => (
-            <ListItem title={`#${p.number} ${p.title}`} onPress={() => void shell.openExternal(p.url).catch(() => undefined)}>
+            <ListItem
+              title={`#${p.number} ${p.title}`}
+              onPress={() => void shell.openExternal(p.url).catch(() => undefined)}
+            >
               <Row gap="xs" wrap>
                 {p.draft ? <Badge tone="neutral">Draft</Badge> : null}
                 <Badge tone={CHECKS[p.checks].tone}>{CHECKS[p.checks].label}</Badge>
@@ -210,7 +236,11 @@ function Ship({ s }: { s: Snapshot }) {
       {s.ship.length ? (
         s.ship.map((r) => <ShipCard r={r} />)
       ) : (
-        <EmptyState title="No GitHub repos to watch" description="Add owner/name repos in Settings, or a GitHub project to Orca." icon="rocket" />
+        <EmptyState
+          title="No GitHub repos to watch"
+          description="Add owner/name repos in Settings, or a GitHub project to Orca."
+          icon="rocket"
+        />
       )}
     </Stack>
   )
@@ -222,7 +252,7 @@ export default function Panel() {
     <Stack gap="sm">
       <SourceError text={s.errors.orca} />
       {s.orcaAt ? (
-        <Tabs label="View" value={read(tab)} onChange={(v) => set(tab, v)}>
+        <Tabs label="View" defaultValue={read(tab)} onChange={(v) => set(tab, v)}>
           <Tab value="queue" label={`Queue · ${s.needsYou.length}`} icon="flag">
             <Queue s={s} />
           </Tab>

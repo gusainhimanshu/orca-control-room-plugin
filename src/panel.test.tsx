@@ -39,6 +39,13 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   await view.select({ role: 'tablist' }, 'ship')
   assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
 
+  // A restarted worker's empty snapshot does not wipe the last reading.
+  await view.post('snapshot', emptySnapshot())
+  assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
+  // ...nor does its first Orca reading wipe the GitHub one.
+  await view.post('snapshot', { ...snap, ghAt: 0, ship: [] })
+  assert.ok(view.find({ text: 'acme/alpha · no open pull requests' }))
+
   await view.post('snapshot', { ...snap, errors: { orca: 'CLI down' } })
   assert.ok(view.find({ text: 'CLI down' }))
   assert.deepEqual(view.errors, [])
