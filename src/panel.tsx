@@ -88,21 +88,29 @@ function NeedItem({ n }: { n: NeedRow }) {
   return (
     <ListItem
       title={n.title}
-      icon={n.kind === 'gate' ? 'flag' : 'agent'}
+      icon={n.kind === 'agent' ? 'agent' : n.kind === 'gate' ? 'flag' : 'bot'}
       onPress={n.worktreeId ? go(n.worktreeId, n.address) : undefined}
     >
       <Stack gap="xs">
-        <Text size="sm">{n.question}</Text>
-        {n.options.length ? (
-          <Row gap="xs" wrap>
-            {n.options.map((o) => (
-              <Badge tone="neutral">{o}</Badge>
-            ))}
-          </Row>
-        ) : null}
+        {n.question ? <Text size="sm">{n.question}</Text> : null}
+        {n.decisions.map((d) => (
+          <Stack gap="xs">
+            {d.prompt && d.prompt !== n.question ? (
+              <Text size="sm" weight="medium">
+                {d.prompt}
+              </Text>
+            ) : null}
+            {/* Options are shown as labels only: answering happens in the bot's chat. */}
+            <Row gap="xs" wrap>
+              {d.options.map((o) => (
+                <Badge tone="neutral">{o}</Badge>
+              ))}
+            </Row>
+          </Stack>
+        ))}
         <Row gap="xs" wrap>
           <Text size="xs" muted>
-            {n.product}
+            {n.from ? `${n.from} · ${n.product}` : n.product}
           </Text>
           {n.since ? <RelativeTime at={n.since} muted /> : null}
         </Row>
@@ -114,6 +122,7 @@ function NeedItem({ n }: { n: NeedRow }) {
 function Queue({ s }: { s: Snapshot }) {
   return (
     <Stack gap="md">
+      <SourceError text={s.errors.bots} />
       <SourceError text={s.errors.runs} />
       <Heading level={3}>Needs you · {s.needsYou.length}</Heading>
       {s.needsYou.length ? (
@@ -134,13 +143,13 @@ function Queue({ s }: { s: Snapshot }) {
           <ProductHeader name={g.product} note={`${g.items.length} open`} />,
           <List label={g.product}>
             {g.items.map((t) => (
-              <ListItem title={t.title} description={`${t.status} · ${t.run}`} icon="layers" />
+              <ListItem title={t.title} description={`${t.status} · ${t.via}`} icon="layers" />
             ))}
           </List>
         ])
       ) : (
         <Text muted size="sm">
-          No open tasks in any Run.
+          No open items.
         </Text>
       )}
     </Stack>

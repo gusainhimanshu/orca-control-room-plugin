@@ -8,9 +8,20 @@ const snap: Snapshot = {
   orcaAt: Date.now(),
   ghAt: Date.now(),
   needsYou: [
-    { key: 'gate:g1', kind: 'gate', product: 'Alpha', title: 'Review it', question: 'Merge now?', options: ['yes', 'no'], since: 1, worktreeId: null, address: null }
+    {
+      key: 'item:i1',
+      kind: 'item',
+      product: 'Alpha',
+      title: 'Review it',
+      from: 'Helper',
+      question: 'Merge now?',
+      decisions: [{ prompt: 'Merge now?', options: ['yes (recommended)', 'no'] }],
+      since: 1,
+      worktreeId: null,
+      address: null
+    }
   ],
-  open: [{ product: 'Alpha', items: [{ key: 'task:t1', title: 'Build it', status: 'dispatched', run: 'Ship alpha' }] }],
+  open: [{ product: 'Alpha', items: [{ key: 'task:t1', title: 'Build it', status: 'in progress', via: 'Helper' }] }],
   office: [
     {
       product: 'Alpha',
@@ -30,6 +41,10 @@ test('shows the queue, office and ship board; pressing an agent navigates', asyn
   })
   const view = await mount(panel, { host })
   assert.ok(view.find({ text: 'Merge now?' }))
+  // Options are labels, not answer buttons.
+  assert.ok(view.find({ text: 'yes (recommended)' }))
+  assert.equal(view.findAll({ role: 'button' }).filter((b) => /yes|no/.test(b.text ?? '')).length, 0)
+  assert.ok(view.find({ text: 'Helper · Alpha' }))
   assert.ok(view.find({ label: 'Build it' }))
 
   await view.select({ role: 'tablist' }, 'office')

@@ -11,7 +11,9 @@ import {
   githubRepos,
   productNames,
   stuckAlarms,
+  type BotItems,
   type RawGate,
+  type RawItem,
   type RawPr,
   type RawRepo,
   type RawRun,
@@ -68,7 +70,23 @@ export default function activate(orca: OrcaWorkerApi): void {
       const products = productNames(repos)
       const office = buildOffice(ps.worktrees ?? [], products)
 
-      // Runs are a separate source: if they fail, the Office still shows.
+      // Bot items: the owner's queue. A separate source, so a failure leaves the rest showing.
+      let items: BotItems[] = []
+      let botsError: string | undefined
+      try {
+        const bots = await orcaRead<{ bots: { name: string }[] }>(bin, 'bot list')
+        items = await Promise.all(
+          (bots.bots ?? []).map(async ({ name }) => {
+            // Open items only (needs you, in progress, planned): the CLI's default.
+            const r = await orcaRead<{ items: RawItem[] }>(bin, 'bot item list', ['--bot', name, '--limit', '100'])
+            return { bot: name, items: r.items ?? [] }
+          })
+        )
+      } catch (e) {
+        botsError = message(e)
+      }
+
+      // Runs supplement the items with decision gates and untracked tasks.
       let runs: RunData[] = []
       let workers: RawWorker[] = []
       let runsError: string | undefined
@@ -90,8 +108,9 @@ export default function activate(orca: OrcaWorkerApi): void {
       } catch (e) {
         runsError = message(e)
       }
-      const queue = buildQueue(runs, workers, products, office)
-      publish({ orcaAt: Date.now(), office, ...queue, errors: { orca: undefined, runs: runsError } })
+      const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
+      const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
+      publish({ orcaAt: Date.now(), office, ...queue, errors: { orca: undefined, bots: botsError, runs: runsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {

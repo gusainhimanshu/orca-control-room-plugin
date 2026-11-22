@@ -9,9 +9,11 @@ in your browser (Orca asks first).
 
 ## Views
 
-- **Queue**: *Needs you* first: open decision gates from orchestration Runs (question and options,
-  shown as plain labels, not answer buttons) and agents waiting on your input or permission. Then
-  *Open work*: every open orchestration task of every Run, grouped by product.
+- **Queue**: *Needs you* first: every bot's items with status *needs you*, with the bot's ask and
+  its options (shown as plain labels, not answer buttons; you answer in the bot's chat). Agents
+  waiting on your input or permission and open orchestration decision gates are added too. Then
+  *Open work*: every bot's other open items (in progress, planned), grouped by product, plus
+  orchestration tasks that no bot item already tracks.
 - **Office**: every agent that still has a terminal or chat, grouped by product, as *working*,
   *waiting on you*, *idle* or *errored*, with how long it has been so. Click to go to it.
 - **Ship**: per product, open pull requests with their checks state and review state, plus the
@@ -27,12 +29,17 @@ Only a fixed allow-list of read-only commands, run with argument arrays (never a
 
 | Command | Used for |
 | --- | --- |
+| `orca bot list --json` | the bots whose items make the Queue |
+| `orca bot item list --bot <name> --limit 100 --json` | each bot's open items and their asks |
 | `orca repo list --json` | products (projects) and their GitHub remotes |
 | `orca worktree ps --json` | agents per workspace, state and since when |
 | `orca orchestration run-list --json` | Runs to read tasks and gates from |
-| `orca orchestration task-list --run <id> --json` | open work |
-| `orca orchestration gate-list --run <id> --json` | decisions waiting on you |
-| `orca orchestration worker-list --json` | which product a task works in |
+| `orca orchestration task-list --run <id> --json` | open tasks no bot item tracks |
+| `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
+| `orca orchestration worker-list --json` | which product a task or Dispatch works in |
+
+A bot item's product comes from what it links: a pull request's workspace or repo, or a Dispatch's
+workspace. An item that links nothing takes the product the bot's other items work in.
 | `gh pr list -R <repo> --state open --json …` | pull requests, checks, reviews |
 | `gh run list -R <repo> --limit 1 --json …` | latest Actions run |
 

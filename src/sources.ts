@@ -2,6 +2,8 @@
 import { runFile } from './platform'
 
 const ORCA_READS = new Set([
+  'bot list',
+  'bot item list',
   'repo list',
   'worktree ps',
   'orchestration run-list',

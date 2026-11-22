@@ -64,16 +64,55 @@ test('office groups addressed agents by product, waiting first', () => {
   assert.equal(office[1].items[1].detail, 'All done.')
 })
 
-test('queue: open gates and waiting agents need you; open tasks group by product', () => {
+test('queue: bot items first; Runs add gates and untracked tasks; waiting agents need you', () => {
   const office = buildOffice(worktrees, products)
-  const q = buildQueue(
-    [
+  const q = buildQueue({
+    products,
+    repoProducts: new Map([['acme/alpha', 'Alpha']]),
+    office,
+    workers: [
+      { taskId: 't1', dispatchId: 'ctx_t1', workspace: 'r1::/w/alpha' },
+      { taskId: 't7', dispatchId: 'ctx_old', workspace: 'r2::/w/beta' }
+    ],
+    // As `orca bot item list --bot <name> --json` prints them (invented).
+    items: [
+      {
+        bot: 'Helper',
+        items: [
+          {
+            uid: 'i1',
+            number: 3,
+            title: 'Pick a database',
+            status: 'needs_you',
+            lastActivityAt: 5,
+            question: {
+              text: 'Which one?\nmore words',
+              gist: 'Which database should we use?',
+              decisions: [
+                { question: 'Which database?', replies: [{ label: 'Postgres', recommended: true }, { label: 'SQLite', recommended: false }] },
+                { question: 'Migrate now?', replies: [{ label: 'Yes' }, { label: 'Later' }] }
+              ]
+            },
+            links: [{ kind: 'pr', ref: 'acme/alpha#12', pr: { ref: 'acme/alpha#12' } }]
+          },
+          // Linked to Beta through a Dispatch whose latest worker ran there.
+          { uid: 'i2', title: 'Write docs', status: 'in_progress', links: [{ kind: 'dispatch', ref: 'ctx_first', latest: 'ctx_old' }] },
+          // Links nothing: takes the product the bot's other items work in (one Alpha, one Beta: first wins).
+          { uid: 'i3', title: 'Plan release', status: 'planned' },
+          { uid: 'i4', title: 'Shipped', status: 'done' }
+        ]
+      },
+      { bot: 'Quiet', items: [{ uid: 'i5', title: 'Lonely', status: 'needs_you', updatedAt: 1 }] }
+    ],
+    runs: [
       {
         run: { id: 'run1', objective: 'Ship alpha' },
         tasks: [
-          { id: 't1', status: 'dispatched', title: 'Build it' },
+          { id: 't1', status: 'dispatched', title: 'Build it', dispatchId: 'ctx_t1' },
           { id: 't2', status: 'pending', title: 'Review it' },
-          { id: 't3', status: 'completed', title: 'Plan it' }
+          { id: 't3', status: 'completed', title: 'Plan it' },
+          // Already tracked by bot item i2 (same Dispatch): not repeated.
+          { id: 't7', status: 'dispatched', title: 'Docs worker', dispatchId: 'ctx_old' }
         ],
         gates: [
           { id: 'g1', taskId: 't2', question: 'Merge now?', options: ['yes', 'no'], status: 'pending', createdAt: 10 },
@@ -81,25 +120,29 @@ test('queue: open gates and waiting agents need you; open tasks group by product
         ]
       },
       { run: { id: 'run2', objective: 'Loose' }, tasks: [{ id: 't9', status: 'ready', title: 'Orphan' }], gates: [] }
-    ],
-    [{ taskId: 't1', workspace: 'r1::/w/alpha' }],
-    products,
-    office
-  )
+    ]
+  })
   assert.deepEqual(
-    q.needsYou.map((n) => [n.kind, n.product, n.title, n.question, n.options.join('/')]),
+    q.needsYou.map((n) => [n.kind, n.from, n.product, n.title, n.question]),
     [
-      ['gate', 'Alpha', 'Review it', 'Merge now?', 'yes/no'],
-      ['agent', 'loose-folder', 'Agent', 'Waiting for your answer', ''],
-      ['agent', 'Alpha', 'codex', 'Wants to use Bash', '']
+      ['item', 'Quiet', 'Other', 'Lonely', ''],
+      ['item', 'Helper', 'Alpha', 'Pick a database', 'Which database should we use?'],
+      ['gate', null, 'Alpha', 'Review it', 'Merge now?'],
+      ['agent', null, 'loose-folder', 'Agent', 'Waiting for your answer'],
+      ['agent', null, 'Alpha', 'codex', 'Wants to use Bash']
     ]
   )
-  // t2 has no worker but its Run's other task maps to Alpha; t9 maps nowhere.
+  assert.deepEqual(q.needsYou[1].decisions, [
+    { prompt: 'Which database?', options: ['Postgres (recommended)', 'SQLite'] },
+    { prompt: 'Migrate now?', options: ['Yes', 'Later'] }
+  ])
+  assert.deepEqual(q.needsYou[2].decisions, [{ prompt: '', options: ['yes', 'no'] }])
   assert.deepEqual(
-    q.open.map((g) => [g.product, g.items.map((t) => t.title)]),
+    q.open.map((g) => [g.product, g.items.map((t) => `${t.title} (${t.status}, ${t.via})`)]),
     [
-      ['Alpha', ['Build it', 'Review it']],
-      ['Other', ['Orphan']]
+      ['Alpha', ['Plan release (planned, Helper)', 'Build it (dispatched, Ship alpha)', 'Review it (pending, Ship alpha)']],
+      ['Beta', ['Write docs (in progress, Helper)']],
+      ['Other', ['Orphan (ready, Loose)']]
     ]
   )
 })

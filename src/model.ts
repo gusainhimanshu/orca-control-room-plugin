@@ -17,9 +17,23 @@ export type RawAgent = {
 }
 export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; displayName?: string; agents?: RawAgent[] }
 export type RawRun = { id: string; objective?: string; legacy?: boolean }
-export type RawTask = { id: string; status?: string; title?: string }
+export type RawTask = { id: string; status?: string; title?: string; dispatchId?: string }
 export type RawGate = { id: string; taskId?: string; question?: string; options?: unknown; status?: string; createdAt?: number }
-export type RawWorker = { taskId?: string; workspace?: string }
+export type RawWorker = { taskId?: string; dispatchId?: string; workspace?: string }
+export type RawDecision = { question?: string; replies?: { label?: string; recommended?: boolean }[] }
+export type RawItemLink = { kind?: string; ref?: string; latest?: string; pr?: { ref?: string; worktreeId?: string } | null }
+/** One row of `orca bot item list --json` (status words as --json prints them: needs_you, in_progress, ...). */
+export type RawItem = {
+  uid: string
+  number?: number
+  title?: string
+  status?: string
+  question?: { text?: string; gist?: string; decisions?: RawDecision[] } | null
+  links?: RawItemLink[]
+  lastActivityAt?: number
+  updatedAt?: number
+}
+export type BotItems = { bot: string; items: RawItem[] }
 export type RawCheck = { status?: string; conclusion?: string; state?: string }
 export type RawPr = {
   number: number
@@ -45,18 +59,22 @@ export type AgentRow = {
   address: string
 }
 export type Group<T> = { product: string; items: T[] }
+export type Decision = { prompt: string; options: string[] }
 export type NeedRow = {
   key: string
-  kind: 'gate' | 'agent'
+  kind: 'item' | 'gate' | 'agent'
   product: string
   title: string
+  /** Who asks: the bot's name, or null for an agent or a Run's gate. */
+  from: string | null
   question: string
-  options: string[]
+  decisions: Decision[]
   since: number | null
   worktreeId: string | null
   address: string | null
 }
-export type TaskRow = { key: string; title: string; status: string; run: string }
+/** `via`: the bot that owns the item, or the Run's objective. */
+export type TaskRow = { key: string; title: string; status: string; via: string }
 export type Checks = 'pass' | 'fail' | 'pending' | 'none'
 export type Review = 'approved' | 'changes' | 'required' | 'none'
 export type PrRow = { number: number; title: string; url: string; draft: boolean; checks: Checks; review: Review }
@@ -129,45 +147,105 @@ export function buildOffice(worktrees: RawWorktree[], products: Map<string, stri
 }
 
 const CLOSED_GATE = new Set(['resolved', 'answered', 'closed', 'cancelled', 'canceled', 'denied', 'expired'])
-const CLOSED_TASK = new Set(['completed', 'failed', 'cancelled', 'canceled', 'abandoned', 'done'])
+const CLOSED = new Set(['completed', 'failed', 'cancelled', 'canceled', 'abandoned', 'done'])
+const STATUS_WORD: Record<string, string> = { needs_you: 'needs you', in_progress: 'in progress' }
 
 export type RunData = { run: RawRun; tasks: RawTask[]; gates: RawGate[] }
-
-/** repoId of each task's workspace ("repoId::path"), from the worker list. */
-function taskProducts(workers: RawWorker[], products: Map<string, string>): Map<string, string> {
-  const out = new Map<string, string>()
-  for (const w of workers) {
-    const repoId = w.workspace?.split('::')[0]
-    const name = repoId && products.get(repoId)
-    if (w.taskId && name) out.set(w.taskId, name)
-  }
-  return out
+export type QueueInput = {
+  items: BotItems[]
+  runs: RunData[]
+  workers: RawWorker[]
+  products: Map<string, string>
+  /** "owner/name" (lowercase) -> product, for items that link a pull request. */
+  repoProducts: Map<string, string>
+  office: Group<AgentRow>[]
 }
 
-export function buildQueue(
-  runs: RunData[],
-  workers: RawWorker[],
-  products: Map<string, string>,
-  office: Group<AgentRow>[]
-): { needsYou: NeedRow[]; open: Group<TaskRow>[] } {
-  const byTask = taskProducts(workers, products)
+const repoIdOf = (worktreeId?: string | null) => worktreeId?.split('::')[0] ?? ''
+
+/** A bot item's product: the workspace, Dispatch or repo its links point at. */
+function itemProduct(item: RawItem, input: QueueInput, byDispatch: Map<string, string>): string | null {
+  for (const l of item.links ?? []) {
+    const fromWorktree = input.products.get(repoIdOf(l.pr?.worktreeId))
+    if (fromWorktree) return fromWorktree
+    for (const ref of [l.ref, l.latest]) if (ref && byDispatch.has(ref)) return byDispatch.get(ref)!
+    const prRef = l.pr?.ref ?? (l.kind === 'pr' ? l.ref : undefined) ?? ''
+    const repo = /^([^/#\s]+\/[^/#\s]+)#\d+$/.exec(prRef)?.[1]?.toLowerCase()
+    if (repo && input.repoProducts.has(repo)) return input.repoProducts.get(repo)!
+  }
+  return null
+}
+
+function itemDecisions(q: RawItem['question']): Decision[] {
+  return (q?.decisions ?? []).map((d) => ({
+    prompt: d.question ?? '',
+    options: (d.replies ?? []).map((r) => `${r.label ?? ''}${r.recommended ? ' (recommended)' : ''}`)
+  }))
+}
+
+export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Group<TaskRow>[] } {
+  const { products } = input
   const needsYou: NeedRow[] = []
   const open: (TaskRow & { product: string })[] = []
+  const byTask = new Map<string, string>()
+  const byDispatch = new Map<string, string>()
+  for (const w of input.workers) {
+    const name = products.get(repoIdOf(w.workspace))
+    if (!name) continue
+    if (w.taskId) byTask.set(w.taskId, name)
+    if (w.dispatchId) byDispatch.set(w.dispatchId, name)
+  }
 
-  for (const { run, tasks, gates } of runs) {
-    // A task nobody has worked on yet belongs to the product its siblings in the Run touch.
+  // Bot items are the owner's queue.
+  const itemDispatches = new Set<string>()
+  for (const { bot, items } of input.items) {
+    const mapped = items.map((i) => itemProduct(i, input, byDispatch))
+    // An item that links nothing belongs to the product the bot's other items work in.
+    const botProduct = mostCommon(mapped.filter((p): p is string => !!p)) ?? OTHER
+    items.forEach((item, at) => {
+      for (const l of item.links ?? []) {
+        if (l.kind === 'dispatch') [l.ref, l.latest].forEach((r) => r && itemDispatches.add(r))
+      }
+      const status = (item.status ?? '').toLowerCase()
+      if (CLOSED.has(status)) return
+      const product = mapped[at] ?? botProduct
+      const title = item.title || `#${item.number ?? item.uid}`
+      if (status === 'needs_you') {
+        const q = item.question
+        needsYou.push({
+          key: `item:${item.uid}`,
+          kind: 'item',
+          product,
+          title,
+          from: bot,
+          question: firstLine(q?.gist || q?.text, 300),
+          decisions: itemDecisions(q),
+          since: item.lastActivityAt ?? item.updatedAt ?? null,
+          worktreeId: null,
+          address: null
+        })
+      } else {
+        open.push({ key: `item:${item.uid}`, product, title, status: STATUS_WORD[status] ?? status, via: bot })
+      }
+    })
+  }
+
+  // Orchestration Runs add decision gates, and tasks no bot item already tracks.
+  for (const { run, tasks, gates } of input.runs) {
     const runProduct = mostCommon(tasks.map((t) => byTask.get(t.id)).filter((p): p is string => !!p))
     const productOf = (taskId?: string) => (taskId && byTask.get(taskId)) || runProduct || OTHER
     const titles = new Map(tasks.map((t) => [t.id, t.title ?? t.id]))
     for (const g of gates) {
       if (CLOSED_GATE.has((g.status ?? '').toLowerCase())) continue
+      const options = Array.isArray(g.options) ? g.options.map(String) : []
       needsYou.push({
         key: `gate:${g.id}`,
         kind: 'gate',
         product: productOf(g.taskId),
         title: (g.taskId && titles.get(g.taskId)) || run.objective || 'Decision',
+        from: null,
         question: g.question ?? '',
-        options: Array.isArray(g.options) ? g.options.map(String) : [],
+        decisions: options.length ? [{ prompt: '', options }] : [],
         since: g.createdAt ?? null,
         worktreeId: null,
         address: null
@@ -175,12 +253,12 @@ export function buildQueue(
     }
     for (const t of tasks) {
       const status = (t.status ?? '').toLowerCase()
-      if (CLOSED_TASK.has(status)) continue
-      open.push({ key: `task:${t.id}`, product: productOf(t.id), title: t.title ?? t.id, status, run: run.objective ?? run.id })
+      if (CLOSED.has(status) || (t.dispatchId && itemDispatches.has(t.dispatchId))) continue
+      open.push({ key: `task:${t.id}`, product: productOf(t.id), title: t.title ?? t.id, status, via: run.objective ?? run.id })
     }
   }
 
-  for (const g of office) {
+  for (const g of input.office) {
     for (const a of g.items) {
       if (a.state !== 'waiting') continue
       needsYou.push({
@@ -188,8 +266,9 @@ export function buildQueue(
         kind: 'agent',
         product: g.product,
         title: a.title,
+        from: null,
         question: a.detail || 'Waiting for your answer',
-        options: [],
+        decisions: [],
         since: a.since,
         worktreeId: a.worktreeId,
         address: a.address

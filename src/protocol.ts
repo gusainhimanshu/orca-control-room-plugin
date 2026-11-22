@@ -2,7 +2,7 @@
 import type { AgentRow, Group, NeedRow, ShipRow, TaskRow } from './model'
 
 /** Each source's last error, or absent when its last read worked. */
-export type SourceErrors = Partial<Record<'orca' | 'runs' | 'gh', string>>
+export type SourceErrors = Partial<Record<'orca' | 'bots' | 'runs' | 'gh', string>>
 
 export type Snapshot = {
   /** 0 until the first orca round finishes. */
