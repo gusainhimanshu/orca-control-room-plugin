@@ -62,11 +62,13 @@ export type RawItem = {
   status?: string
   question?: { text?: string; gist?: string; decisions?: RawDecision[] } | null
   links?: RawItemLink[]
-  /** The bot chat the item lives in; its agent's address is `orca_session_id:<id>`. */
-  chat?: { id?: string } | null
+  /** The bot chat the item lives in; its agent's address is `orca_session_id:<id>`. `title` is added from `orca bot chats`. */
+  chat?: { id?: string; title?: string } | null
   lastActivityAt?: number
   updatedAt?: number
 }
+/** One row of `orca bot chats --bot <name> --json`. */
+export type RawChat = { id: string; title?: string; home?: boolean }
 export type BotItems = { bot: string; items: RawItem[] }
 export type RawCheck = { status?: string; conclusion?: string; state?: string }
 export type RawPr = {
@@ -106,6 +108,8 @@ export type NeedRow = {
   since: number | null
   worktreeId: string | null
   address: string | null
+  /** A bot item's chat title, when known: Orca can show the bot's workspace but not switch to one chat. */
+  chat?: string | null
 }
 /** `via`: the bot that owns the item, or the Run's objective. */
 export type TaskRow = { key: string; title: string; status: string; via: string }
@@ -268,7 +272,7 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
       const title = item.title || `#${item.number ?? item.uid}`
       if (status === 'needs_you') {
         const q = item.question
-        // The bot's chat, when Orca shows it as an agent: pressing the item (or an option) goes there.
+        // The bot's chat, when Orca shows it as an agent: its workspace is where the owner answers.
         const chat = item.chat?.id ? agents.get(`orca_session_id:${item.chat.id}`) : undefined
         needsYou.push({
           key: `item:${item.uid}`,
@@ -280,7 +284,8 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
           decisions: itemDecisions(q),
           since: item.lastActivityAt ?? item.updatedAt ?? null,
           worktreeId: chat?.worktreeId ?? null,
-          address: chat?.address ?? null
+          address: chat?.address ?? null,
+          chat: item.chat?.title ?? null
         })
       } else {
         open.push({ key: `item:${item.uid}`, product, title, status: STATUS_WORD[status] ?? status, via: bot })

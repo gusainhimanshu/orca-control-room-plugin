@@ -167,7 +167,7 @@ test("a needs-you item navigates to its bot's chat when Orca shows that chat as 
       {
         bot: 'Helper',
         items: [
-          { uid: 'i1', status: 'needs_you', chat: { id: 'bot-chat-1' } },
+          { uid: 'i1', status: 'needs_you', chat: { id: 'bot-chat-1', title: 'Planning' } },
           { uid: 'i2', status: 'needs_you', chat: { id: 'bot-chat-gone' } }
         ]
       }
@@ -176,6 +176,7 @@ test("a needs-you item navigates to its bot's chat when Orca shows that chat as 
   const byKey = new Map(q.needsYou.map((n) => [n.key, n]))
   assert.deepEqual([byKey.get('item:i1')?.worktreeId, byKey.get('item:i1')?.address], ['f::/bots', 'orca_session_id:bot-chat-1'])
   assert.deepEqual([byKey.get('item:i2')?.worktreeId, byKey.get('item:i2')?.address], [null, null])
+  assert.deepEqual([byKey.get('item:i1')?.chat, byKey.get('item:i2')?.chat], ['Planning', null])
 })
 
 test('a gate answer is refused unless allowed, still waiting, and sane text', () => {

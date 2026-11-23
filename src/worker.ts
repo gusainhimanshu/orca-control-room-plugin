@@ -18,6 +18,7 @@ import {
   stuckAlarms,
   type BotItems,
   type RawGate,
+  type RawChat,
   type RawItem,
   type RawFullMessage,
   type RawMessage,
@@ -92,7 +93,14 @@ export default function activate(orca: OrcaWorkerApi): void {
           (bots.bots ?? []).map(async ({ name }) => {
             // Open items only (needs you, in progress, planned): the CLI's default.
             const r = await orcaRead<{ items: RawItem[] }>(bin, 'bot item list', ['--bot', name, '--limit', '100'])
-            return { bot: name, items: r.items ?? [] }
+            const its = r.items ?? []
+            // Name the chat a needs-you item lives in: the panel can open the bot's workspace, not that chat.
+            if (its.some((i) => i.status === 'needs_you' && i.chat?.id)) {
+              const c = await orcaRead<{ chats: RawChat[] }>(bin, 'bot chats', ['--bot', name]).catch(() => ({ chats: [] as RawChat[] }))
+              const titles = new Map((c.chats ?? []).map((ch) => [ch.id, ch.home ? 'Home' : ch.title || ch.id]))
+              for (const i of its) if (i.chat?.id && titles.has(i.chat.id)) i.chat = { ...i.chat, title: titles.get(i.chat.id) }
+            }
+            return { bot: name, items: its }
           })
         )
       } catch (e) {

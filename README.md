@@ -25,9 +25,10 @@ with the site's URL.
   last thing it said. Built only from the reads below; drawn with Orca's components (a components
   panel cannot draw SVG), so it follows the theme and has no motion.
 - **Queue**: *Needs you* first: every bot's items with status *needs you*, with the bot's ask and
-  its options. Orca offers no way to answer a bot item for you outside its chat, so when Orca shows
-  the bot's chat, each option is a button that **opens that chat** (it sends nothing); otherwise the
-  options are plain labels. Agents waiting on your input or permission are added too, and open
+  its options as plain text. Orca offers no way to answer a bot item for you outside its chat, and
+  a plugin cannot switch to one particular chat (chats are not terminals), so when Orca shows the
+  bot's chat the item gets one **Open chat to answer** button: it opens the bot's chats, and its
+  tooltip names the chat that owns the item so you can switch to it. It sends nothing. Agents waiting on your input or permission are added too, and open
   orchestration decision gates, which you can answer here (below). Then
   *Open work*: every bot's other open items (in progress, planned), grouped by product, plus
   orchestration tasks that no bot item already tracks.
@@ -76,6 +77,7 @@ Only a fixed allow-list of commands, run with argument arrays (never a shell), s
 | --- | --- |
 | `orca bot list --json` | the bots whose items make the Queue |
 | `orca bot item list --bot <name> --limit 100 --json` | each bot's open items and their asks |
+| `orca bot chats --bot <name> --json` | the title of the chat a needs-you item lives in (only for bots with one) |
 | `orca repo list --json` | products (projects) and their GitHub remotes |
 | `orca worktree ps --json` | agents per workspace, state and since when |
 | `orca orchestration run-list --json` | Runs to read tasks and gates from |
@@ -106,7 +108,8 @@ What Orca 1.4.271 offers the **owner** to answer, checked before building this:
   reading, and that the answer is non-empty and under 2,000 characters.
 - **Bot items**: no owner path. Every `orca bot item` write (`comment`, `set`, ...) acts as the
   *bot* from its own chat, and the plugin host API has no bot or item methods, so the panel does
-  not pretend: an item's options open the bot's chat, where you answer.
+  not pretend: an item's options are plain text and one button opens the bot's chats, where you
+  answer. No composer or prefill method exists either, so the choice cannot be typed in for you.
 
 ### Site pings: the only network requests
 
