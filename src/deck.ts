@@ -36,7 +36,8 @@ export type Key = {
   head?: boolean
 }
 export type DeckRow = { id: string; title: string; keys: Key[] }
-export type Deck = { kpis: Key[]; rows: DeckRow[]; bots: Key[] }
+/** `hidden`: Orca projects with no workspace activity within the "Active within" days. */
+export type Deck = { kpis: Key[]; rows: DeckRow[]; bots: Key[]; hidden: number }
 
 /** Lower is worse: rows and their heads sort by it. */
 export const TONE_RANK: Record<KeyTone, number> = { danger: 0, warning: 1, accent: 2, neutral: 3, success: 4 }
@@ -178,7 +179,7 @@ export function headLine(keys: Key[]): string {
 }
 
 /** Every product with something to show, worst first; ties by name. Sites with no product get a row of their own. */
-export function productRows(s: Snapshot): DeckRow[] {
+export function productRows(s: Snapshot, hide: ReadonlySet<string> = new Set()): DeckRow[] {
   const sitesOf = new Map<string, SiteRow[]>()
   for (const x of s.sites) {
     const g = siteGroup(x, s.projects) ?? SITES_ROW
@@ -190,7 +191,7 @@ export function productRows(s: Snapshot): DeckRow[] {
     ...s.open.map((g) => g.product),
     ...s.needsYou.map((n) => n.product),
     ...sitesOf.keys()
-  ])
+  ].filter((p) => !hide.has(p)))
   const rows = [...names].map((product) => {
     const keys = productKeys(product, s, sitesOf.get(product) ?? [])
     const tone = worstTone(keys.map((k) => k.tone))
@@ -238,8 +239,36 @@ export function botKeys(bots: OverviewBot[]): Key[] {
   })
 }
 
-export function buildDeck(s: Snapshot): Deck {
-  return { kpis: kpiKeys(kpiCounts(s)), rows: productRows(s), bots: botKeys(s.overview) }
+// ---- Active projects ----
+export const DAY_MS = 86_400_000
+/** A project is active when one of its workspaces had activity within `days` of `now`, the boundary included. */
+export const isActive = (last: number | undefined, now: number, days: number) => !!last && now - last <= days * DAY_MS
+
+/**
+ * What the Dashboard shows: the snapshot without the rows of Orca projects that are not active
+ * (`hidden`). Needs you stays whole, so its total still counts every question to the owner; bots stay.
+ * Rows that are not an Orca project (Sites, a watched repo of no project) always show.
+ */
+export function activeOnly(s: Snapshot, now: number): { view: Snapshot; hidden: string[] } {
+  if (!(s.activeDays > 0)) return { view: s, hidden: [] }
+  const hidden = [...new Set(s.projects)].filter((p) => !isActive(s.lastActive[p], now, s.activeDays))
+  if (!hidden.length) return { view: s, hidden }
+  const gone = new Set(hidden)
+  const keep = (x: { product: string }) => !gone.has(x.product)
+  const view: Snapshot = {
+    ...s,
+    office: s.office.filter(keep),
+    ship: s.ship.filter(keep),
+    open: s.open.filter(keep),
+    flows: s.flows.filter(keep),
+    sites: s.sites.filter((x) => !gone.has(siteGroup(x, s.projects) ?? SITES_ROW))
+  }
+  return { view, hidden }
+}
+
+export function buildDeck(s: Snapshot, now: number): Deck {
+  const { view, hidden } = activeOnly(s, now)
+  return { kpis: kpiKeys(kpiCounts(view)), rows: productRows(view, new Set(hidden)), bots: botKeys(s.overview), hidden: hidden.length }
 }
 
 /** Ids of the keys a pressed KPI outlines: every key that counts toward it, the KPI key included. */

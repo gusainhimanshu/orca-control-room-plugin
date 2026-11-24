@@ -1,6 +1,6 @@
 // The Dashboard's wall of keys, from invented data.
 import { assert, test } from 'orca/testing'
-import { botKeys, buildDeck, headLine, highlighted, isEmpty, keyById, kpiCounts, moveFocus, productRows, QUIET_ROW, rowsBehind, SITES_ROW, worstTone, type Box } from './deck'
+import { activeOnly, botKeys, buildDeck, DAY_MS, isActive, headLine, highlighted, isEmpty, keyById, kpiCounts, moveFocus, productRows, QUIET_ROW, rowsBehind, SITES_ROW, worstTone, type Box } from './deck'
 import type { AgentRow, PrRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
 import type { SiteRow } from './sites'
@@ -60,7 +60,7 @@ const snap: Snapshot = {
 
 test('KPIs count what waits on you, agents by state, failing PRs and sites down', () => {
   assert.deepEqual(kpiCounts(snap), { needs: 2, working: 1, waiting: 1, errored: 1, prsFailing: 1, sitesDown: 1 })
-  const deck = buildDeck(snap)
+  const deck = buildDeck(snap, 0)
   assert.deepEqual(
     deck.kpis.map((k) => [k.label, k.value, k.tone]),
     [
@@ -73,7 +73,7 @@ test('KPIs count what waits on you, agents by state, failing PRs and sites down'
     ]
   )
   // A zero stays calm.
-  assert.ok(buildDeck(emptySnapshot()).kpis.every((k) => k.tone === 'neutral' && k.value === '0'))
+  assert.ok(buildDeck(emptySnapshot(), 0).kpis.every((k) => k.tone === 'neutral' && k.value === '0'))
 })
 
 test('one row per product, worst first, each led by its product key', () => {
@@ -115,7 +115,7 @@ test('quiet things fold into one summary key per row', () => {
 })
 
 test('a pressed KPI outlines exactly the keys that count toward it', () => {
-  const deck = buildDeck(snap)
+  const deck = buildDeck(snap, 0)
   const ids = (k: Parameters<typeof highlighted>[1]) => [...highlighted(deck, k)].sort()
   assert.deepEqual(ids('sitesDown'), [`${SITES_ROW}:site:Shop`, 'kpi:sitesDown'])
   assert.deepEqual(ids('prsFailing'), ['Gamma:pr:https://github.com/acme/x/pull/4', 'kpi:prsFailing'])
@@ -173,7 +173,7 @@ test('products with nothing to show share one last row', () => {
 })
 
 test('rows behind a total: the matching rows from every product', () => {
-  const deck = buildDeck(snap)
+  const deck = buildDeck(snap, 0)
   const behind = (id: string) => rowsBehind(keyById(deck, id)!.of, snap)
   assert.deepEqual(behind('kpi:needs').needs.map((n) => n.key), ['item:i1', 'agent:b1'])
   assert.deepEqual(behind('kpi:working').agents.map((a) => a.key), ['a1'])
@@ -187,7 +187,7 @@ test('rows behind a total: the matching rows from every product', () => {
 
 test("rows behind a product key: its agents, items, PRs, CI, sites, open work and messages", () => {
   const s: Snapshot = { ...snap, flows: [{ product: 'Alpha', items: [{ key: 'm1', from: 'a', to: 'b', type: 'status', subject: 'Hi', line: '', waiting: false, at: 1, worktreeId: null, address: null }] }] }
-  const d = rowsBehind(keyById(buildDeck(s), 'Alpha:head')!.of, s)
+  const d = rowsBehind(keyById(buildDeck(s, 0), 'Alpha:head')!.of, s)
   assert.deepEqual(d.agents.map((a) => a.key), ['a1', 'a2', 'a3'])
   assert.deepEqual(d.needs.map((n) => n.key), ['item:i1'])
   assert.deepEqual(d.ship.map((r) => [r.prs.length, r.latestRun?.result]), [[3, 'pass']])
@@ -220,8 +220,33 @@ test('rows behind a summary key are what it folded; behind a leaf, its one row',
 test('rows behind a bot key: the bot, the items it asks, its open work', () => {
   const bot = { name: 'Helper', doing: 'Build', open: 1, needsYou: 1, lastSaid: 'Done.', worktreeId: null, address: null, workers: [], prs: [] }
   const s: Snapshot = { ...snap, overview: [bot] }
-  const d = rowsBehind(keyById(buildDeck(s), 'bot:Helper')!.of, s)
+  const d = rowsBehind(keyById(buildDeck(s, 0), 'bot:Helper')!.of, s)
   assert.deepEqual(d.bots.map((b) => b.lastSaid), ['Done.'])
   assert.deepEqual(d.needs.map((n) => n.key), ['item:i1'])
   assert.deepEqual(d.tasks.map((t) => t.key), ['t1'])
+})
+
+test('a project is active when a workspace had activity within the days, the boundary included', () => {
+  const now = 100 * DAY_MS
+  assert.equal(isActive(now - 15 * DAY_MS, now, 15), true)
+  assert.equal(isActive(now - 15 * DAY_MS - 1, now, 15), false)
+  assert.equal(isActive(now, now, 15), true)
+  // No workspace, no activity: inactive.
+  assert.equal(isActive(undefined, now, 15), false)
+})
+
+test('the Dashboard shows only active projects; Needs you still counts every question', () => {
+  const now = 100 * DAY_MS
+  // Alpha active on the boundary, Beta quiet for 16 days, Gamma and Zeta have no workspaces.
+  const s: Snapshot = { ...snap, projects: [...snap.projects, 'Zeta'], activeDays: 15, lastActive: { Alpha: now - 15 * DAY_MS, Beta: now - 16 * DAY_MS } }
+  assert.deepEqual(activeOnly(s, now).hidden, ['Beta', 'Gamma', 'Zeta'])
+  const deck = buildDeck(s, now)
+  assert.equal(deck.hidden, 3)
+  // Beta's waiting and errored agents and Gamma's failing PR leave the totals; Beta's ask stays in Needs you.
+  assert.deepEqual(Object.fromEntries(deck.kpis.map((k) => [k.label, k.value])), { 'Needs you': '2', Working: '1', Waiting: '0', Errored: '0', 'PRs failing': '0', 'Sites down': '1' })
+  // Sites with no product are no Orca project: their row stays. No Nothing-to-show row for Zeta.
+  assert.deepEqual(deck.rows.map((r) => r.title).sort(), ['Alpha', SITES_ROW])
+  assert.deepEqual(rowsBehind({ kpi: 'needs' }, activeOnly(s, now).view).needs.map((n) => n.key), ['item:i1', 'agent:b1'])
+  // Off (0, as an older snapshot reads) hides nothing.
+  assert.equal(buildDeck({ ...s, activeDays: 0 }, now).hidden, 0)
 })

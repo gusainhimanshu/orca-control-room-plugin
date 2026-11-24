@@ -29,6 +29,10 @@ export type Snapshot = {
   projects: string[]
   /** The "Allow answering from the panel" setting: decision gates get answer buttons. */
   allowAnswer: boolean
+  /** Each product's latest workspace activity (ms), from `lastActivityAt` in `orca worktree ps`. */
+  lastActive: Record<string, number>
+  /** The "Active within (days)" setting: the Dashboard hides projects quiet for longer. 0 shows every project. */
+  activeDays: number
   errors: SourceErrors
 }
 
@@ -46,6 +50,8 @@ export const emptySnapshot = (): Snapshot => ({
   siteErrors: [],
   projects: [],
   allowAnswer: false,
+  lastActive: {},
+  activeDays: 0,
   errors: {}
 })
 

@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Control room: who hands work to whom, what waits on you (decision gates answered after a confirm), every agent by product, each product's pull requests and CI, pings of the sites you list, and a full-page Dashboard of keys.",
   "engines": {
     "orca": ">=1.4.259"
@@ -58,6 +58,15 @@
         "default": 15,
         "minimum": 1,
         "maximum": 1440
+      },
+      {
+        "key": "activeDays",
+        "title": "Active within (days)",
+        "description": "The Dashboard shows only projects with Orca workspace activity in this many days; the rest fold into one \"N inactive projects hidden\" line. Needs you still counts every question. Details tabs show everything.",
+        "type": "integer",
+        "default": 15,
+        "minimum": 1,
+        "maximum": 90
       },
       {
         "key": "shipRepos",

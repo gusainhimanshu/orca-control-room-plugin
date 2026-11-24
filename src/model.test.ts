@@ -1,6 +1,7 @@
 // Pure data -> view model, with invented data.
 import { assert, test } from 'orca/testing'
 import {
+  lastActivity,
   alarmNotice,
   buildFlows,
   buildOffice,
@@ -324,4 +325,12 @@ test('running: what a collapsed group still shows', () => {
   assert.equal(running.flow({ waiting: false, at: 0 }, now), false)
   assert.deepEqual(['working', 'waiting', 'errored', 'idle', 'done'].map((state) => running.worker({ state })), [false, true, true, false, false])
   assert.deepEqual(['Build login', 'Nothing open', ''].map((doing) => running.doing({ doing })), [true, false, false])
+})
+
+test('lastActivity: the newest workspace activity per product', () => {
+  const products = new Map([['r1', 'Alpha']])
+  assert.deepEqual(
+    lastActivity([{ worktreeId: 'a', repoId: 'r1', lastActivityAt: 5 }, { worktreeId: 'b', repoId: 'r1', lastActivityAt: 9 }, { worktreeId: 'c', repo: 'Loose' }], products),
+    { Alpha: 9 }
+  )
 })
