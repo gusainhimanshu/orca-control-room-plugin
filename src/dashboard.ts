@@ -215,7 +215,8 @@ function keyHtml(k: Key, extra = ''): string {
   keysById.set(k.id, k)
   const pulse = pulses(k) && k.head ? ' pulse' : ''
   const tip = [k.label, k.value, k.sub].filter(Boolean).join(' · ')
-  return `<button class="key ${extra}${k.head ? ' head' : ''}${pulse}${open === k.id ? ' open' : ''}" data-id="${esc(k.id)}" data-tone="${k.tone}" title="${esc(tip)}. Press for details" aria-label="${esc(tip)}" aria-controls="drawer" aria-expanded="${open === k.id}">
+  const shift = botHome(k) ? `; Shift+press opens ${k.label}'s home` : ''
+  return `<button class="key ${extra}${k.head ? ' head' : ''}${pulse}${open === k.id ? ' open' : ''}" data-id="${esc(k.id)}" data-tone="${k.tone}" title="${esc(tip)}. Press for details${esc(shift)}" aria-label="${esc(tip)}" aria-controls="drawer" aria-expanded="${open === k.id}">
     <span class="top">${icon(k.icon)}${k.value ? `<span class="value">${esc(k.value)}</span>` : ''}</span>
     <span><span class="label">${esc(k.label)}</span>${k.sub ? `<span class="sub">${esc(k.sub)}</span>` : ''}</span></button>`
 }
@@ -344,7 +345,12 @@ function applyLit(): void {
   if (hint) hint.textContent = lit ? 'Outlined: what counts toward it. Esc closes the details.' : 'Press any key for what is behind it.'
 }
 
-function press(k: Key): void {
+/** A bot key's home workspace, if Orca lists one. */
+const botHome = (k: Key) => ('bot' in k.of && snap?.overview.find((b) => b.name === (k.of as { bot: string }).bot)?.home) || null
+
+function press(k: Key, shift = false): void {
+  const home = shift && botHome(k)
+  if (home) return env.navigate(home, null)
   if (open === k.id) closeDrawer()
   else openDrawer(k)
 }
@@ -417,7 +423,7 @@ export function start(panel: boolean): void {
     if (button) return env.acts[Number(button.dataset.act)]?.()
     const el = target.closest<HTMLElement>('.key')
     const k = el && keysById.get(el.dataset.id ?? '')
-    if (k) press(k)
+    if (k) press(k, e.shiftKey)
   })
   document.addEventListener('input', (e) => {
     const el = e.target as HTMLInputElement

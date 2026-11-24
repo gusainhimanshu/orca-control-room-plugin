@@ -23,6 +23,8 @@ export type OverviewBot = {
   lastSaid: string
   worktreeId: string | null
   address: string | null
+  /** The bot's home folder workspace, when Orca lists one. */
+  home?: string | null
   workers: OverviewWorker[]
   /** Pull requests its items link with no worker of theirs to hang them on. */
   prs: PrRef[]
@@ -43,6 +45,8 @@ export type OverviewInput = {
   /** Newest first, as the inbox prints them. */
   messages: RawMessage[]
   taskTitles: Map<string, string>
+  /** Bot name -> its home workspace (`botHomes`). */
+  homes?: Map<string, string>
 }
 
 export function buildOverview(input: OverviewInput): OverviewBot[] {
@@ -106,6 +110,7 @@ export function buildOverview(input: OverviewInput): OverviewBot[] {
       lastSaid: (chatAgent?.state !== 'waiting' && chatAgent?.detail) || firstLine(said?.body) || firstLine(said?.subject),
       worktreeId: chatAgent?.worktreeId ?? null,
       address: chatAgent?.address ?? null,
+      home: input.homes?.get(bot) ?? null,
       workers: [...workers.values()],
       prs
     }
@@ -172,7 +177,7 @@ export function layoutOverview(bots: OverviewBot[], ship: ShipRow[]): { nodes: O
         tier: 1,
         tone: b.needsYou ? 'warning' : b.workers.some((w) => w.state === 'working') ? 'accent' : 'neutral',
         waiting: b.needsYou > 0,
-        nav: b.worktreeId ? { worktreeId: b.worktreeId, address: b.address } : null
+        nav: b.worktreeId ? { worktreeId: b.worktreeId, address: b.address } : b.home ? { worktreeId: b.home, address: null } : null
       },
       'owner'
     )

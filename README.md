@@ -104,7 +104,12 @@ and Right move between the tabs, Up and Down between the rows and group headers.
     always counts every question to you. Rows that are no Orca project (*Sites*, a watched repo of
     no project) and the bots always show; the Details tabs show everything. Both the sidebar
     Dashboard and the full page.
-  - Then one key per bot: its workers, and how many wait on you.
+  - Then one key per bot: its workers, and how many wait on you. Its drawer starts with
+    **Open <bot>'s home** (0.10.1): it shows the bot's home folder workspace (`~/.orca/bots/<bot>`,
+    the workspace `orca worktree ps` marks `botHome`). Bot chats have no terminal, so a plugin
+    cannot pick one: Orca shows the chat open there last; pick *Home* in its chat list for the Home
+    Chat. **Shift+press** on a bot key opens its home directly. A bot with no home workspace gets
+    no button.
   - Pressing any key (0.8.0) opens a **details drawer** on the same page: beside the wall when the
     tab is wide, below it when narrow. It lists the rows behind the key, the same ones the sidebar's
     Dashboard view lists, and they act the same way: show the workspace or focus the terminal, open

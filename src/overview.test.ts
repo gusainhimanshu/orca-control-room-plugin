@@ -1,6 +1,6 @@
 // Overview: invented bots, workers and pull requests.
 import { assert, test } from 'orca/testing'
-import type { AgentRow, Group } from './model'
+import { botHomes, type AgentRow, type Group } from './model'
 import { buildOverview, layoutOverview, prTone, type OverviewBot } from './overview'
 
 const agent = (address: string, state: AgentRow['state'], detail = ''): AgentRow => ({
@@ -80,6 +80,25 @@ test("a bot whose chat Orca does not show says what it last mailed", () => {
     items: [{ bot: 'Far', items: [{ uid: 'i', title: 'Ask', status: 'needs_you', chat: { id: 'bot-chat-9' } }] }]
   })
   assert.deepEqual([b.doing, b.lastSaid, b.worktreeId], ['Waiting on you: Ask', 'Status', null])
+})
+
+test("a bot's home is its botHome folder workspace; a bot without one has none", () => {
+  const bots = buildOverview({
+    office: [],
+    taskTitles: new Map(),
+    workers: [],
+    messages: [],
+    homes: botHomes([
+      { worktreeId: 'folder:home-a', bot: 'Alpha', botHome: true },
+      // A workspace the bot works in is not its home.
+      { worktreeId: 'r1::/work', bot: 'Beta' },
+      { worktreeId: 'folder:other' }
+    ]),
+    items: [{ bot: 'Alpha', items: [] }, { bot: 'Beta', items: [] }]
+  })
+  assert.deepEqual(bots.map((b) => b.home), ['folder:home-a', null])
+  // The diagram's bot node goes home when Orca shows no chat of it.
+  assert.deepEqual(layoutOverview(bots, []).nodes.find((n) => n.id === 'bot:Alpha')?.nav, { worktreeId: 'folder:home-a', address: null })
 })
 
 const pr = (ref: string, checks = '', state = 'open') => ({ ref, title: '', url: null, state, checks })

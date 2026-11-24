@@ -9,6 +9,7 @@ import {
   buildFlows,
   buildOffice,
   buildQueue,
+  botHomes,
   buildShipRow,
   fromFullInbox,
   freshAlarms,
@@ -149,7 +150,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       }
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
-      const overview = buildOverview({ items, workers, office, messages, taskTitles: titles })
+      const overview = buildOverview({ items, workers, office, messages, taskTitles: titles, homes: botHomes(ps.worktrees ?? []) })
       publish({ orcaAt: Date.now(), office, flows, overview, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, lastActive, activeDays: settings.activeDays, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
