@@ -3,7 +3,7 @@
 // open a pull request, run or site in the browser (Orca asks first), and answer a decision gate only
 // after an inline confirm. In the sidebar (0.9.0) the header also switches to the Details tabs (src/details.ts).
 // The keys come from src/deck.ts and the rows from src/rows.ts; this file only draws.
-import { buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
+import { activeOnly, buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
 import { asCollapsed, asTab, detailsHtml, TABS, type DetailsState } from './details'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import { act, ago, askGate, detailHtml, esc, gateState, type Env } from './rows'
@@ -188,7 +188,7 @@ button.node { cursor: pointer; }
 `
 
 let snap: Snapshot | null = null
-let deck: Deck = { kpis: [], rows: [], bots: [] }
+let deck: Deck = { kpis: [], rows: [], bots: [], hidden: 0 }
 let lit: KpiId | null = null
 /** Why the first reading has not arrived (the worker refused, or drawing failed), shown instead of waiting forever. */
 let loadError = ''
@@ -242,8 +242,8 @@ function render(): void {
   }
   if (isPanel && view === 'details') return drawDetails(app)
   const focused = (document.activeElement as HTMLElement | null)?.dataset?.id
-  deck = buildDeck(snap)
-  const rows = deck.rows.length
+  deck = buildDeck(snap, Date.now())
+  const rows = deck.rows.length || deck.hidden
     ? deck.rows.map((r) => `<div class="keys" role="group" aria-label="${esc(r.title)}">${r.keys.map((k) => keyHtml(k)).join('')}</div>`).join('<div style="height:12px"></div>')
     : `<div class="empty"><strong>No products yet</strong>Products are your Orca projects. Agents, pull requests and sites show here once a project has any.</div>`
   // A key that went away closes its drawer.
@@ -251,7 +251,7 @@ function render(): void {
   const wall = `
     <section aria-label="Totals"><div class="keys">${deck.kpis.map((k) => keyHtml(k, 'kpi')).join('')}</div>
       <p class="hint" id="hint"></p></section>
-    <section aria-label="Products"><h2>Products, worst first</h2>${rows}</section>
+    <section aria-label="Products"><h2>Products, worst first</h2>${rows}${deck.hidden ? `<p class="hint">${deck.hidden} inactive project${deck.hidden === 1 ? '' : 's'} hidden</p>` : ''}</section>
     ${deck.bots.length ? `<section aria-label="Bots"><h2>Bots</h2><div class="keys">${deck.bots.map((k) => keyHtml(k)).join('')}</div></section>` : ''}`
   let layout = app.querySelector<HTMLElement>('.layout')
   if (!layout) {
@@ -278,7 +278,7 @@ function drawDrawer(drawer: HTMLElement): void {
   env.acts = []
   drawer.hidden = !k
   if (!k || !snap) return void (drawer.innerHTML = '')
-  const d = rowsBehind(k.of, snap)
+  const d = rowsBehind(k.of, activeOnly(snap, Date.now()).view)
   const title = k.id.startsWith('kpi:') ? `${k.label} · ${k.value}` : k.label
   drawer.innerHTML = `<div class="bar"><div><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>${k.sub ? `<p>${esc(k.sub)}</p>` : ''}</div>
     <button class="btn close" ${act(env, closeDrawer)} aria-label="Back to the keys (Esc)"><span class="x">Close</span><span class="back">← Dashboard</span></button></div>

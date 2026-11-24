@@ -13,6 +13,7 @@ import {
   fromFullInbox,
   freshAlarms,
   githubRepos,
+  lastActivity,
   productNames,
   resolveRefusal,
   stuckAlarms,
@@ -45,7 +46,7 @@ const FLOW_LIMIT = 40
 const SEEN_KEY = 'alarms.seen'
 const DASHBOARD_FILE = fileURLToPath(new URL('../Control Room/Dashboard.crdeck', import.meta.url))
 
-type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string; allowAnswer: boolean }
+type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string; allowAnswer: boolean; activeDays: number }
 
 async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
   const s = await orca.settings.get()
@@ -55,7 +56,8 @@ async function readSettings(orca: OrcaWorkerApi): Promise<Settings> {
     shipRepos: typeof s.shipRepos === 'string' ? s.shipRepos : '',
     orcaPath: typeof s.orcaPath === 'string' ? s.orcaPath : '',
     sites: typeof s.sites === 'string' ? s.sites : '',
-    allowAnswer: s.allowAnswer !== false
+    allowAnswer: s.allowAnswer !== false,
+    activeDays: typeof s.activeDays === 'number' && s.activeDays >= 1 ? Math.min(s.activeDays, 90) : 15
   }
 }
 
@@ -85,6 +87,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       repos = repoList.repos ?? []
       const products = productNames(repos)
       const office = buildOffice(ps.worktrees ?? [], products)
+      const lastActive = lastActivity(ps.worktrees ?? [], products)
 
       // Bot items: the owner's queue. A separate source, so a failure leaves the rest showing.
       let items: BotItems[] = []
@@ -147,7 +150,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       const repoProducts = new Map(githubRepos(repos).map((r) => [r.repo.toLowerCase(), r.product]))
       const queue = buildQueue({ items, runs, workers, products, repoProducts, office })
       const overview = buildOverview({ items, workers, office, messages, taskTitles: titles })
-      publish({ orcaAt: Date.now(), office, flows, overview, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
+      publish({ orcaAt: Date.now(), office, flows, overview, ...queue, projects: [...new Set(products.values())], allowAnswer: settings.allowAnswer, lastActive, activeDays: settings.activeDays, errors: { orca: undefined, bots: botsError, runs: runsError, flows: flowsError } })
       await statusBar(queue.needsYou.length)
       await alarm(settings)
     } catch (e) {

@@ -15,7 +15,7 @@ export type RawAgent = {
   lastAssistantMessage?: string | null
   mainAgent?: { outcome?: string } | null
 }
-export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; displayName?: string; agents?: RawAgent[] }
+export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; displayName?: string; lastActivityAt?: number; agents?: RawAgent[] }
 export type RawRun = { id: string; objective?: string; legacy?: boolean }
 export type RawTask = { id: string; status?: string; title?: string; dispatchId?: string }
 export type RawGate = { id: string; taskId?: string; question?: string; options?: unknown; status?: string; createdAt?: number }
@@ -144,6 +144,16 @@ const OTHER = 'Other'
 /** repoId -> product name. */
 export function productNames(repos: RawRepo[]): Map<string, string> {
   return new Map(repos.map((r) => [r.id, r.displayName || r.path || r.id]))
+}
+
+/** Each product's latest workspace activity (ms): the newest `lastActivityAt` among its workspaces. */
+export function lastActivity(worktrees: RawWorktree[], products: Map<string, string>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const w of worktrees) {
+    const product = (w.repoId && products.get(w.repoId)) || w.repo || OTHER
+    if (w.lastActivityAt && w.lastActivityAt > (out[product] ?? 0)) out[product] = w.lastActivityAt
+  }
+  return out
 }
 
 /** "owner/name" for each GitHub-backed project. */

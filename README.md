@@ -96,6 +96,14 @@ and Right move between the tabs, Up and Down between the rows and group headers.
     degraded, the latest Actions run, open items. Quiet things fold into one key each
     (*4 agents idle*, *3 PRs green*, *2 sites up*). Sites with no product share a *Sites* row, and
     products with nothing to show share the last row.
+  - **Only active projects** (0.10.0): a project (Orca project) shows a row only when one of its
+    workspaces had activity (`lastActivityAt` in `orca worktree ps`) within *Active within (days)*
+    (default 15, the boundary day included). A project with no workspaces is inactive. The others
+    drop their rows, from *Nothing to show* too, and fold into one quiet line at the end:
+    *N inactive projects hidden*. The totals count only what shows, except **Needs you**, which
+    always counts every question to you. Rows that are no Orca project (*Sites*, a watched repo of
+    no project) and the bots always show; the Details tabs show everything. Both the sidebar
+    Dashboard and the full page.
   - Then one key per bot: its workers, and how many wait on you.
   - Pressing any key (0.8.0) opens a **details drawer** on the same page: beside the wall when the
     tab is wide, below it when narrow. It lists the rows behind the key, the same ones the sidebar's
@@ -126,7 +134,7 @@ Only a fixed allow-list of commands, run with argument arrays (never a shell), s
 | `orca bot item list --bot <name> --limit 100 --json` | each bot's open items and their asks |
 | `orca bot chats --bot <name> --json` | the title of the chat a needs-you item lives in (only for bots with one) |
 | `orca repo list --json` | products (projects) and their GitHub remotes |
-| `orca worktree ps --json` | agents per workspace, state and since when |
+| `orca worktree ps --json` | agents per workspace, state and since when; each workspace's `lastActivityAt`, which makes a project active on the Dashboard |
 | `orca orchestration run-list --json` | Runs to read tasks and gates from |
 | `orca orchestration task-list --run <id> --json` | open tasks no bot item tracks |
 | `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
@@ -182,7 +190,7 @@ in its view; the rest of the panel keeps working.
 | `workspace:write` | **only** `terminal.focus` and `workspace.open`, so a click can take you to an agent. Nothing renames, hides or runs commands |
 | `notifications:show` | the stuck-agent alarm and site down / back notifications |
 | `storage:own` | remember which alarms were already shown, and the panel's view, tab and open groups |
-| `settings:own` | read the six settings below |
+| `settings:own` | read the seven settings below |
 
 ## Settings
 
@@ -190,6 +198,7 @@ in its view; the rest of the panel keeps working.
 | --- | --- |
 | Notifications (stuck agents, sites going down or coming back) | on |
 | Stuck threshold (minutes) | 15 |
+| Active within (days): the Dashboard shows only projects with workspace activity in this many days (1–90) | 15 |
 | Repos to watch on the Ship board (`owner/name`, comma separated) | empty = every GitHub repo behind your Orca projects |
 | Sites to ping (`Name=https://url` or `Product:Name=https://url`, comma or newline separated, e.g. `Shop=https://shop.example.com, Alpha:Docs=https://docs.example.com`) | empty = no Sites group and no requests |
 | Allow answering from the panel (decision gates, after a confirm) | on |
