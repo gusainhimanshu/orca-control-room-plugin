@@ -13,9 +13,15 @@
   "contributes": {
     "panels": [
       {
-        "id": "control-room",
+        "id": "wall",
         "title": "Control Room",
         "icon": "gauge",
+        "entry": "src/wall.ts"
+      },
+      {
+        "id": "control-room",
+        "title": "Control Room · Details",
+        "icon": "layers",
         "entry": "src/panel.tsx",
         "ui": "components"
       }
@@ -25,7 +31,7 @@
         "id": "dashboard",
         "title": "Control Room",
         "extensions": [".crdeck"],
-        "entry": "src/dashboard.ts"
+        "entry": "src/dashboard-editor.ts"
       }
     ],
     "commands": [

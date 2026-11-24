@@ -14,19 +14,21 @@ with the site's URL.
 
 ## Views
 
-- **Dashboard** (first tab, 0.8.0; the sidebar opens on it): the full-page Dashboard's wall of keys
-  (below) sized for the sidebar: the totals, one row per product worst first with quiet things
-  folded, then the bots. **Press a key for what is behind it**: the wall is replaced, in place, by
-  the rows behind that key, drawn with the same rows as the other tabs and doing the same things
-  (focus an agent or show its workspace, open a PR or site with Orca's confirm, *Open chat to
-  answer*, answer a decision gate after a confirm). **← Dashboard** goes back. A total lists its
-  rows from every product (*Needs you* → the needs-you cards, *Working* → the agents working,
-  *PRs failing* → the failing PRs); a product key lists that product's agents, items, PRs with
-  their checks, latest CI, sites and recent messages; a bot key its workers, items and the last
-  thing it said; a summary key (*4 agents*) the rows it folded. The sidebar remembers the last tab
-  you chose, as before; the first open after upgrading lands on the Dashboard once. Components
-  panels get no key events, so in the sidebar Esc and arrow keys do nothing: Tab moves between keys
-  and Enter presses one.
+Two sidebar panels:
+
+- **Control Room** (0.8.0, the first panel): the Dashboard's wall of keys (below), drawn by the same
+  page as the full-page Dashboard, so the same square keys with their glow: the totals, one row per
+  product worst first with quiet things folded, then the bots. **Press a key for what is behind
+  it**: the wall is replaced, in place, by the rows behind that key, which do what they do
+  elsewhere (focus an agent or show its workspace, open a PR or site with Orca's confirm, *Open
+  chat to answer*, answer a decision gate after a confirm). **← Dashboard** or Esc goes back, and
+  focus returns to the key. A total lists its rows from every product (*Needs you* → the needs-you
+  cards, *Working* → the agents working, *PRs failing* → the failing PRs); a product key lists
+  that product's agents, items, PRs with their checks, latest CI, sites and recent messages; a bot
+  key its workers, items and the last thing it said; a summary key (*4 agents*) the rows it folded.
+  Arrow keys move between keys. **Open full page** opens the full-page Dashboard.
+- **Control Room · Details**: the tabs below, as lists.
+
 - **Overview**: a diagram of who hands work to whom, top to bottom: **You** → each bot
   → the workers it started → their pull requests, one node per row, indented by tier, in a box
   that scrolls when tall. A bot's workers come from the Dispatches its open items link and the
@@ -77,7 +79,8 @@ with the site's URL.
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
-  with **Open dashboard** at the top of the sidebar, or *Control Room: Open dashboard* in the
+  with **Open full page** in the *Control Room* panel, **Open dashboard** in *Control Room ·
+  Details*, or *Control Room: Open dashboard* in the
   command palette. It reads the same snapshot as the sidebar and is read-only the same way.
   - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
     A zero stays grey. Pressing one opens its details (below) and also outlines the keys that count
@@ -198,7 +201,7 @@ orca plugin dev load ./orca-control-room-plugin      # prints what it would gran
 orca plugin dev load ./orca-control-room-plugin --approve <fingerprint>
 ```
 
-Then open **Control Room** in the right sidebar.
+Then open **Control Room** (the key wall) or **Control Room · Details** in the right sidebar.
 
 ## Development
 
@@ -224,12 +227,13 @@ upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci
   (tested in `src/sites.test.ts`).
 - `src/sources.ts`: the command allow-list.
 - `src/worker.ts`: polling, alarms, status bar, navigation.
-- `src/panel.tsx`: the components panel.
 - `src/deck.ts`: the Dashboard's keys: totals, product rows worst first, folded summary keys, bot
   keys, what a total outlines, the rows behind each key (`rowsBehind`), and arrow-key moves (tested
   in `src/deck.test.ts`).
-- `src/dashboard.ts`: the Dashboard editor and its details drawer (HTML, drawn from `src/deck.ts`).
-  The sidebar's Dashboard tab draws the same deck with Orca's components in `src/panel.tsx`.
+- `src/dashboard.ts`: the wall of keys and its details drawer (HTML, drawn from `src/deck.ts`), started
+  by `src/dashboard-editor.ts` as the full-page editor and by `src/wall.ts` as the first sidebar
+  panel (an open drawer replaces the wall there, and on any page narrower than 520 px).
+- `src/panel.tsx`: the *Control Room · Details* components panel (Overview, Queue, Office, Flows, Ship).
 
 ## Platform module
 

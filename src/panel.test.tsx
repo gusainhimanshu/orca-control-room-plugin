@@ -288,7 +288,7 @@ test('groups start collapsed; one expands and collapses, and the state is persis
 
 test('a remembered collapsed group stays collapsed after a reload; one with something waiting on you is marked', async () => {
   const host = mockHost({ requests: { 'snapshot.get': () => snap } })
-  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'flows:Alpha': true, 'flows:Gone': true }, tab: stored('flows', 2) } } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'flows:Alpha': true, 'flows:Gone': true }, tab: 'flows' } } })
   assert.equal(groupOf(view, 'flows:Alpha').open, false)
   assert.equal(groupOf(view, 'flows:Alpha').description, '1 messages · 1 waiting on you')
   assert.ok(view.summary().some((l) => l.startsWith('Box warning "Alpha')))
@@ -302,7 +302,7 @@ test('a remembered collapsed group stays collapsed after a reload; one with some
 
 test('a collapsed Ship card with a site down is marked red', async () => {
   const host = mockHost({ requests: { 'snapshot.get': () => ({ ...snap, sites: [{ ...snap.sites[0], product: 'Alpha' }] }) } })
-  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'ship:Alpha': true }, tab: stored('ship', 2) } } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: { 'ship:Alpha': true }, tab: 'ship' } } })
   assert.equal(groupOf(view, 'ship:Alpha').description, 'No runs · 0 open · 1 down')
   assert.ok(view.summary().some((l) => l.startsWith('Box danger "Alpha')))
   await view.unmount()
@@ -310,7 +310,7 @@ test('a collapsed Ship card with a site down is marked red', async () => {
 
 test('collapsed state an older or broken version stored is ignored', async () => {
   const host = mockHost({ requests: { 'snapshot.get': () => snap } })
-  const view = await mount(panel, { host, persisted: { plugin: { collapsed: ['office:Alpha'], tab: stored('office', 2) } } })
+  const view = await mount(panel, { host, persisted: { plugin: { collapsed: ['office:Alpha'], tab: 'office' } } })
   // Read as nothing remembered: the default, collapsed.
   assert.equal(groupOf(view, 'office:Alpha').open, false)
   assert.deepEqual(view.errors, [])
@@ -360,7 +360,7 @@ test('collapsed, a group shows only its running rows and says how many more ther
     siteErrors: []
   }
   const host = mockHost({ requests: { 'snapshot.get': () => s } })
-  const view = await mount(panel, { host, persisted: { plugin: { tab: stored('office', 2) } } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office' } } })
   assert.ok(view.find({ label: 'Agent a' }))
   assert.ok(view.find({ label: 'Agent b' }))
   assert.equal(view.find({ label: 'Agent c' }), null)
@@ -391,7 +391,7 @@ test('collapsed, a group shows only its running rows and says how many more ther
 test('collapsed with nothing running, a group shows only its header and summary', async () => {
   const s: Snapshot = { ...snap, office: [{ product: 'Alpha', items: [agent('c', 'idle'), agent('d', 'idle')] }] }
   const host = mockHost({ requests: { 'snapshot.get': () => s } })
-  const view = await mount(panel, { host, persisted: { plugin: { tab: stored('office', 2) } } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office' } } })
   assert.equal(view.find({ role: 'list', label: 'Alpha' }), null)
   assert.equal(groupOf(view, 'office:Alpha').description, '2 idle · +2 more')
   assert.deepEqual(view.errors, [])
@@ -401,7 +401,7 @@ test('collapsed with nothing running, a group shows only its header and summary'
 test('a group the user expanded before stays expanded after a reload', async () => {
   const s: Snapshot = { ...snap, office: [{ product: 'Alpha', items: [agent('c', 'idle')] }] }
   const host = mockHost({ requests: { 'snapshot.get': () => s } })
-  const view = await mount(panel, { host, persisted: { plugin: { tab: stored('office', 2), collapsed: { 'office:Alpha': false } } } })
+  const view = await mount(panel, { host, persisted: { plugin: { tab: 'office', collapsed: { 'office:Alpha': false } } } })
   assert.equal(groupOf(view, 'office:Alpha').open, true)
   assert.ok(view.find({ label: 'Agent c' }))
   assert.equal(groupOf(view, 'office:Alpha').description, '1 idle')
@@ -409,60 +409,13 @@ test('a group the user expanded before stays expanded after a reload', async () 
   await view.unmount()
 })
 
-test('opens on the Dashboard; a key shows the rows behind it in place, and ← Dashboard goes back', async () => {
-  const navigated: unknown[] = []
-  const host = mockHost({ requests: { 'snapshot.get': () => snap, navigate: (input) => (navigated.push(input), { ok: true }) } })
-  const view = await mount(panel, { host })
-  assert.ok(view.summary().includes('Tabs "View": "Dashboard" selected'))
-  assert.ok(view.find({ role: 'button', text: '1 Needs you' }))
-  assert.equal(view.find({ label: 'Fix login' }), null)
-
-  // A product key: its agents, items, PRs and sites, with the same rows (and actions) as the other tabs.
-  await view.press({ role: 'button', text: 'Alpha' })
-  assert.ok(view.find({ role: 'button', text: '← Dashboard' }))
-  assert.equal(view.find({ role: 'button', text: '1 Needs you' }), null)
-  assert.ok(view.find({ text: 'Merge now?' }))
-  assert.ok(view.find({ label: 'Build it' }))
-  assert.ok(view.find({ text: 'acme/alpha' }))
-  await view.press({ label: 'Fix login' })
-  assert.deepEqual(navigated, [{ worktreeId: 'r1::/w', address: 'term_1' }])
-
-  await view.press({ role: 'button', text: '← Dashboard' })
-  assert.ok(view.find({ role: 'button', text: '1 Needs you' }))
-  assert.equal(view.find({ label: 'Fix login' }), null)
-
-  // A total: the matching rows from every product.
-  await view.press({ role: 'button', text: '1 Sites down' })
-  assert.ok(view.find({ text: 'HTTP 503 · 42 ms' }))
-  assert.equal(view.find({ label: 'Fix login' }), null)
-  // A key whose rows went away says so instead of showing stale rows.
-  await view.post('snapshot', { ...snap, sites: [] })
-  assert.ok(view.find({ text: 'Nothing behind this key right now.' }))
-  assert.deepEqual(view.errors, [])
-  assert.deepEqual(view.refusals, [])
-  await view.unmount()
-})
-
-test('a gate answered from a Dashboard detail still needs the confirm', async () => {
-  const { view, sent } = await withGate({ ...snap, needsYou: [gate] })
-  await view.select({ role: 'tablist' }, 'dashboard')
-  await view.press({ role: 'button', text: '1 Needs you' })
-  await view.press({ role: 'button', text: 'deploy' })
-  assert.deepEqual(sent, [])
-  await view.press({ role: 'button', text: 'Confirm' })
-  assert.deepEqual(sent, [{ gateId: 'g1', resolution: 'deploy' }])
-  await view.unmount()
-})
-
-test('a tab remembered before 0.8.0 opens on the Dashboard once; a tab chosen since is remembered', async () => {
+test('a Dashboard tab an 0.8.0 preview remembered falls back to Overview; any other tab is kept', async () => {
   const host = () => mockHost({ requests: { 'snapshot.get': () => snap } })
-  let view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('office', 1) } } })
-  assert.ok(view.summary().includes('Tabs "View": "Dashboard" selected'))
-  await view.select({ role: 'tablist' }, 'ship')
-  assert.equal(view.persisted.plugin.tab, 'ship')
+  let view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('dashboard', 2) } } })
+  assert.ok(view.summary().includes('Tabs "View": "Overview" selected'), String(view.summary()))
+  assert.equal(view.find({ role: 'button', text: '1 Needs you' }), null)
   await view.unmount()
-  // What 0.8.0 itself stored is kept.
-  view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('ship', 2) } } })
+  view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('ship', 1) } } })
   assert.ok(view.summary().includes('Tabs "View": "Ship" selected'), String(view.summary()))
   await view.unmount()
 })

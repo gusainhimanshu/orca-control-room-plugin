@@ -1,4 +1,4 @@
-// The Dashboard: a full-page wall of keys in an Orca editor tab. A key opens a drawer of the rows
+// The Dashboard: a wall of keys, full page in an Orca editor tab and narrow as the first sidebar panel. A key opens a drawer of the rows
 // behind it on the same page; those rows act like the sidebar's: show a workspace or focus a terminal,
 // open a pull request, run or site in the browser (Orca asks first), and answer a decision gate only
 // after an inline confirm. The keys and rows come from src/deck.ts; this file only draws.
@@ -93,6 +93,30 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
 /* Only product keys pulse, so a wall with many amber keys stays calm. */
 @keyframes pulse { 50% { box-shadow: inset 0 -3px 0 color-mix(in oklab, var(--shade) 22%, transparent), 0 3px 6px -2px color-mix(in oklab, var(--shade) 45%, transparent), 0 0 30px 0 color-mix(in oklab, var(--tone) 55%, transparent); } }
 .key.pulse { animation: pulse 2.6s ease-in-out infinite; }
+/* The sidebar panel (0.8.0): the same wall at 320-400 px; an open drawer takes the wall's place. */
+.full { display: inline-flex; align-items: center; gap: 6px; }
+.full svg { width: 14px; height: 14px; }
+.close .back { display: none; }
+@media (max-width: 520px) {
+  :root { --key: 88px; --gap: 8px; }
+  body { padding: 0 12px 24px; }
+  header { padding: 10px 0; }
+  .key { padding: 8px; border-radius: 12px; }
+  .key svg { width: 18px; height: 18px; }
+  .key .value { font-size: 22px; }
+  .key.kpi .value { font-size: 26px; }
+  .key .label { font-size: 11.5px; }
+  .key.head .label { font-size: 14px; }
+  .drawer { margin-top: 8px; padding: 12px; }
+}
+/* In the sidebar, or any narrow page, an open drawer replaces the wall and its control reads as Back. */
+@media (max-width: 520px) { .layout.with-drawer .wall { display: none; } .layout .drawer .bar { flex-direction: column-reverse; align-items: flex-start; } .layout .drawer .close { margin-left: 0; } .close .back { display: inline; } .close .x { display: none; } }
+.panel .layout.with-drawer { grid-template-columns: minmax(0, 1fr); }
+.panel .layout.with-drawer .wall { display: none; }
+.panel .drawer { position: static; max-height: none; }
+.panel .drawer .bar { flex-direction: column-reverse; align-items: flex-start; }
+.panel .drawer .close { margin-left: 0; }
+.panel .close .back { display: inline; } .panel .close .x { display: none; }
 @media (prefers-reduced-motion: reduce) { .key, .key.pulse { animation: none; transition: none; } .key:active { transform: none; } }
 /* The detail drawer: beside the wall when wide, below it when narrow. */
 .layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
@@ -109,12 +133,12 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
 .drawer h3 { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--orca-muted-foreground); }
 .drawer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .row { display: block; width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--orca-border) 70%, transparent);
-  background: none; color: inherit; font: inherit; text-align: left; }
+  background: none; color: inherit; font: inherit; text-align: left; overflow: hidden; }
 button.row { cursor: pointer; }
 button.row:hover { border-color: var(--orca-border); background: color-mix(in oklab, var(--orca-card) 90%, var(--orca-foreground)); }
 .row:focus-visible, .drawer button:focus-visible, .drawer input:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 2px; }
 .row .t { display: block; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
-.row .m { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; color: var(--orca-muted-foreground); }
+.row .m { overflow-wrap: anywhere; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; color: var(--orca-muted-foreground); }
 .row .q { margin: 4px 0 0; font-size: 12.5px; }
 .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 550; border: 1px solid currentColor; }
 .pill[data-tone="neutral"] { color: var(--orca-muted-foreground); }
@@ -295,7 +319,7 @@ function drawDrawer(drawer: HTMLElement): void {
   const d = rowsBehind(k.of, snap)
   const title = k.id.startsWith('kpi:') ? `${k.label} · ${k.value}` : k.label
   drawer.innerHTML = `<div class="bar"><div><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>${k.sub ? `<p>${esc(k.sub)}</p>` : ''}</div>
-    <button class="btn close" ${act(closeDrawer)} aria-label="Close details (Esc)">Close</button></div>
+    <button class="btn close" ${act(closeDrawer)} aria-label="Back to the keys (Esc)"><span class="x">Close</span><span class="back">← Dashboard</span></button></div>
     ${isEmpty(d) ? '<p class="said">Nothing behind this key right now.</p>' : detailHtml(d)}`
 }
 
@@ -379,11 +403,17 @@ function tick(): void {
 
 const DIRS: Record<string, Dir> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
-function start(): void {
+/** Draws the wall: `panel` for the sidebar panel (src/wall.ts), else the full-page editor (src/dashboard-editor.ts). */
+export function start(panel: boolean): void {
   const style = document.createElement('style')
   style.textContent = STYLE
   document.head.append(style)
-  document.body.innerHTML = `<header><h1>${icon('gauge')}Control Room</h1><span class="meta" id="meta" aria-live="polite"></span></header><main id="app"></main>`
+  document.body.classList.toggle('panel', panel)
+  const title = !panel
+    ? `<h1>${icon('gauge')}Control Room</h1>`
+    : `<button class="btn full" id="full" title="The same wall, full width in an editor tab">${icon('layers')}Open full page</button>`
+  document.body.innerHTML = `<header>${title}<span class="meta" id="meta" aria-live="polite"></span></header><main id="app"></main>`
+  document.getElementById('full')?.addEventListener('click', () => void orca.plugin.request('dashboard.open').catch(() => undefined))
   render()
 
   document.addEventListener('click', (e) => {
@@ -421,11 +451,9 @@ function start(): void {
   })
 
   // The file's text is never used, but asking for it is what tells Orca the editor is ready (and themed).
-  orca.document?.onDidChange(() => undefined)
+  if (!panel) orca.document?.onDidChange(() => undefined)
   orca.plugin.on('snapshot', take)
   window.addEventListener('error', (e) => fail(e.message))
   void orca.plugin.request('snapshot.get').then(take, (e: unknown) => fail(e instanceof Error ? e.message : String(e)))
   setInterval(tick, 1000)
 }
-
-start()

@@ -7,7 +7,6 @@ import {
   Box,
   Button,
   Callout,
-  Grid,
   Collapsible,
   EmptyState,
   Heading,
@@ -32,16 +31,13 @@ import {
 } from 'orca'
 import { MAX_RESOLUTION, running, type AgentRow, type AgentState, type Checks, type FlowRow, type Group, type NeedRow, type PrRow, type Review, type ShipRow, type TaskRow } from './model'
 import { layoutOverview, type OverviewEdge, type OverviewBot, type OverviewNode, type OverviewWorker } from './overview'
-import { buildDeck, isEmpty, keyById, pulses, QUIET_ROW, rowsBehind, type Key } from './deck'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import { siteGroup, type SiteRow, type SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
-// 0.8.0 opens on the Dashboard: version 2 sends a remembered tab from before it there once.
-const tab = atom('tab', 'dashboard', { persist: 'plugin', version: 2, migrate: () => 'dashboard' })
-// The sidebar Dashboard key whose detail is open, by key id; null shows the wall.
-const opened = atom<string | null>('opened', null)
+// The Dashboard tab of an 0.8.0 preview moved to its own visual panel; a tab remembered as it falls back to Overview.
+const tab = atom('tab', 'overview', { persist: 'plugin', version: 3, migrate: (v) => (typeof v === 'string' && v !== 'dashboard' ? v : 'overview') })
 // Groups the user opened (false) or closed (true) as 'tab:product'; absent means collapsed, the default
 // since 0.6.0 (0.5.0 stored only `true`, which reads the same). Stale products are just ignored.
 const collapsed = atom<Record<string, boolean>>('collapsed', {}, { persist: 'plugin' })
@@ -741,140 +737,6 @@ function Ship({ s }: { s: Snapshot }) {
   )
 }
 
-// ---- Dashboard tab: the full page's key wall, sized for the sidebar ----
-const short = (t: string, n = 30) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
-/** What a sidebar key says: its number and name, once ('2 agents' already holds its 2). */
-const keyText = (k: Key) =>
-  k.head ? k.label : k.id.startsWith('bot:') ? `${k.label} · ${k.sub}` : !k.value || k.label.startsWith(k.value) ? k.label : `${k.value} ${k.label}`
-
-function KeyButton({ k }: { k: Key }) {
-  return (
-    <Button
-      size="sm"
-      variant={k.head && pulses(k) ? 'solid' : 'outline'}
-      tone={k.tone}
-      icon={k.icon}
-      tooltip={`${[k.label, k.value, k.sub].filter(Boolean).join(' · ')}. Press for details.`}
-      onPress={() => set(opened, k.id)}
-    >
-      {short(keyText(k))}
-    </Button>
-  )
-}
-
-function Wall({ s }: { s: Snapshot }) {
-  const deck = buildDeck(s)
-  return (
-    <Stack gap="sm">
-      <Grid columns={2} gap="xs">
-        {deck.kpis.map((k) => (
-          <KeyButton k={k} />
-        ))}
-      </Grid>
-      {deck.rows.length ? (
-        deck.rows.map((r) => (
-          <Box border={r.id !== QUIET_ROW && pulses(r.keys[0]) ? r.keys[0].tone : true} radius="md" padding="xs" gap="xs">
-            {r.id !== QUIET_ROW ? (
-              <Row gap="xs" align="center">
-                <KeyButton k={r.keys[0]} />
-                <Text size="xs" muted truncate>
-                  {r.keys[0].sub ?? ''}
-                </Text>
-              </Row>
-            ) : (
-              <Text size="xs" muted>
-                {r.title}
-              </Text>
-            )}
-            <Row gap="xs" wrap>
-              {(r.id !== QUIET_ROW ? r.keys.slice(1) : r.keys).map((k) => (
-                <KeyButton k={k} />
-              ))}
-            </Row>
-          </Box>
-        ))
-      ) : (
-        <EmptyState title="No products yet" description="Agents, pull requests and sites show here once a project has any." icon="folder" />
-      )}
-      {deck.bots.length ? (
-        <Stack gap="xs">
-          <Text size="xs" muted>
-            Bots
-          </Text>
-          <Row gap="xs" wrap>
-            {deck.bots.map((k) => (
-              <KeyButton k={k} />
-            ))}
-          </Row>
-        </Stack>
-      ) : null}
-      <Text size="xs" muted>
-        Press a key for what is behind it.
-      </Text>
-    </Stack>
-  )
-}
-
-/** The rows behind a key, drawn with the same rows (and the same actions) as the other tabs. */
-function KeyDetail({ k, s }: { k: Key; s: Snapshot }) {
-  const d = rowsBehind(k.of, s)
-  return (
-    <Stack gap="sm">
-      <Row gap="xs" align="center">
-        <Button size="sm" variant="ghost" tooltip="Back to the key wall" onPress={() => set(opened, null)}>
-          ← Dashboard
-        </Button>
-      </Row>
-      <Stack gap="xs">
-        <Heading level={3}>{k.value && k.id.startsWith('kpi:') ? `${k.label} · ${k.value}` : k.label}</Heading>
-        {k.sub ? (
-          <Text size="xs" muted>
-            {k.sub}
-          </Text>
-        ) : null}
-      </Stack>
-      {d.bots.map((b) => (
-        <BotBody b={b} />
-      ))}
-      {d.needs.length ? (
-        <List label="Needs you">
-          {d.needs.map((n) => (
-            <NeedItem n={n} canAnswer={s.allowAnswer} />
-          ))}
-        </List>
-      ) : null}
-      {d.agents.length ? <AgentList label="Agents" rows={d.agents} /> : null}
-      {d.ship.map((r) => (
-        <Stack gap="xs">
-          <Text size="xs" muted>
-            {r.repo}
-          </Text>
-          {r.latestRun ? <RunBadge run={r.latestRun} /> : null}
-          {r.error ? (
-            <Text size="xs" tone="warning">
-              {r.error}
-            </Text>
-          ) : null}
-          {r.prs.length ? <PrList label={`${r.repo} pull requests`} rows={r.prs} /> : null}
-        </Stack>
-      ))}
-      <SiteList label="Sites" rows={d.sites} />
-      {d.tasks.length ? <TaskList label="Open work" rows={d.tasks} /> : null}
-      {d.flows.length ? <FlowList label="Recent messages" rows={d.flows} /> : null}
-      {isEmpty(d) ? (
-        <Text size="sm" muted>
-          Nothing behind this key right now.
-        </Text>
-      ) : null}
-    </Stack>
-  )
-}
-
-function Dashboard({ s }: { s: Snapshot }) {
-  const k = keyById(buildDeck(s), read(opened))
-  return k ? <KeyDetail k={k} s={s} /> : <Wall s={s} />
-}
-
 const dashboardError = atom<string | null>(null)
 const openDashboard = () => {
   set(dashboardError, null)
@@ -897,9 +759,6 @@ export default function Panel() {
       <SourceError text={s.errors.orca} />
       {s.orcaAt ? (
         <Tabs label="View" defaultValue={read(tab)} onChange={(v) => set(tab, v)}>
-          <Tab value="dashboard" label="Dashboard" icon="gauge">
-            <Dashboard s={s} />
-          </Tab>
           <Tab value="overview" label="Overview" icon="layers">
             <Overview s={s} />
           </Tab>
