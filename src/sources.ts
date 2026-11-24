@@ -1,5 +1,5 @@
 // The only commands this plugin ever runs: a fixed allow-list of read-only `orca` and `gh` reads,
-// plus one write, resolving a decision gate, sent only after the owner confirms it in the panel.
+// `orca plugin open` to show the Dashboard, plus one write, resolving a decision gate, sent only after the owner confirms it in the panel.
 import { runFile } from './platform'
 
 const ORCA_READS = new Set([
@@ -12,9 +12,12 @@ const ORCA_READS = new Set([
   'orchestration task-list',
   'orchestration gate-list',
   'orchestration worker-list',
-  'orchestration inbox'
+  'orchestration inbox',
+  'plugin list'
 ])
 const ORCA_WRITES = new Set(['orchestration gate-resolve'])
+// Changes only what Orca shows: the Dashboard tab.
+const ORCA_SHOWS = new Set(['plugin open'])
 const GH_READS = new Set(['pr list', 'run list'])
 
 /** Runs one allow-listed `orca <command> ... --json` and answers its `result`. */
@@ -26,6 +29,12 @@ export async function orcaRead<T>(bin: string, command: string, extra: string[] 
 /** The one write: `orca orchestration gate-resolve`. No `--from`: the CLI acts as the person, not an agent. */
 export async function orcaWrite<T>(bin: string, command: string, extra: string[]): Promise<T> {
   if (!ORCA_WRITES.has(command)) throw new Error(`not an allowed write: orca ${command}`)
+  return orcaRun<T>(bin, command, extra)
+}
+
+/** `orca plugin open`: shows a tab, writes nothing. */
+export async function orcaShow<T>(bin: string, command: string, extra: string[]): Promise<T> {
+  if (!ORCA_SHOWS.has(command)) throw new Error(`not an allowed view: orca ${command}`)
   return orcaRun<T>(bin, command, extra)
 }
 

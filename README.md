@@ -2,7 +2,7 @@
 
 A control room for Orca's right sidebar: who hands work to whom, what is waiting on you, every agent in every workspace,
 each product's pull requests and CI, grouped by product (Orca project), and whether the sites you
-list are up.
+list are up; plus a full-page Dashboard of the same, as a wall of keys.
 
 It is **read-only except for one thing**: an orchestration *decision gate* waiting on you can be
 answered from the Queue, and only after you confirm it inline (see [Answering from the
@@ -63,6 +63,30 @@ with the site's URL.
   - *Overview* bot cards: what the bot is doing now, and its workers waiting on you or errored.
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
+- **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
+  with **Open dashboard** at the top of the sidebar, or *Control Room: Open dashboard* in the
+  command palette. It reads the same snapshot as the sidebar and is read-only the same way.
+  - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
+    A zero stays grey. Pressing one outlines the keys that count toward it and dims the rest; press
+    it again or Esc to clear. It opens nothing.
+  - Then one row per product, worst first: the product's own wide key (red when something fails or
+    is down, amber when something waits on you, blue when something works, green when all is
+    quiet), then its keys, worst first: items and gates waiting on you, agents working, waiting or
+    errored, pull requests whose checks fail or run or that have changes asked, sites down or
+    degraded, the latest Actions run, open items. Quiet things fold into one key each
+    (*4 agents idle*, *3 PRs green*, *2 sites up*). Sites with no product share a *Sites* row, and
+    products with nothing to show share the last row.
+  - Then one key per bot: its workers, and how many wait on you.
+  - Pressing a key does what the sidebar does: shows the workspace or focuses the terminal, or opens
+    the pull request, run or site in your browser (Orca asks first). Summary keys only show.
+    Arrow keys move between keys, Enter presses one.
+  - Only product keys glow and pulse, and only when red or amber; the pulse is off under
+    *reduce motion*. Colours follow Orca's light or dark theme.
+  - Where it lives: Orca plugins have no main-area panel; a custom editor is the one full-page
+    surface, and it opens on a file. So the plugin ships an empty `Control Room/Dashboard.crdeck`
+    and opens it with `orca plugin open <plugin> --editor <that file>`. **The first time, Orca adds
+    the plugin's `Control Room` folder as a folder workspace** (it holds only that file); you can
+    hide it from the sidebar. Nothing is ever written to it.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
   past the threshold, or errors; and one when a site goes down, and one when it comes back.
   Already-announced events are remembered in plugin storage.
@@ -71,7 +95,7 @@ with the site's URL.
 ## Where the data comes from
 
 Only a fixed allow-list of commands, run with argument arrays (never a shell), see
-`src/sources.ts`. All are reads but one:
+`src/sources.ts`. All are reads but two: `orca plugin open` only shows the Dashboard tab, and `gate-resolve` is the one write:
 
 | Command | Used for |
 | --- | --- |
@@ -85,6 +109,8 @@ Only a fixed allow-list of commands, run with argument arrays (never a shell), s
 | `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
 | `orca orchestration worker-list --json` | which product a task or Dispatch works in |
 | `orca orchestration inbox --limit 40 --full --json` | the Flows view: recent messages across every mailbox and when each was sent (only a body's first line is kept, cut to 120 characters) |
+| `orca plugin list --json` | this plugin's key, to open its Dashboard |
+| `orca plugin open <plugin> --editor <Dashboard.crdeck>` | shows the Dashboard tab (changes only what Orca shows) |
 | `orca orchestration gate-resolve --id <gate> --resolution <text> --json` | **the one write**: only when you confirm an answer to a decision gate (below) |
 
 A bot item's product comes from what it links: a pull request's workspace or repo, or a Dispatch's
@@ -165,13 +191,13 @@ No build step and no dependencies.
 ```sh
 orca plugin validate .
 orca plugin check .
-orca plugin test .          # model, overview, platform, sites and panel tests (invented data, no real requests)
+orca plugin test .          # model, overview, platform, sites, deck and panel tests (invented data, no real requests)
 npx -y -p typescript@5.9.3 tsc -p . --noEmit  # type check
 ```
 
 CI (`.github/workflows/ci.yml`, Ubuntu and Windows, Node LTS) runs without Orca: the type check
 against a copy of Orca's generated types in `ci/orca-types/`, and the pure tests (model, overview,
-platform, sites) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
+platform, sites, deck) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
 `assert`. The panel test needs Orca's `mount()`, so it runs only under `orca plugin test`. After
 upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci/orca-types/`.
 
@@ -183,6 +209,9 @@ upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci
 - `src/sources.ts`: the command allow-list.
 - `src/worker.ts`: polling, alarms, status bar, navigation.
 - `src/panel.tsx`: the components panel.
+- `src/deck.ts`: the Dashboard's keys: totals, product rows worst first, folded summary keys, bot
+  keys, what a total outlines, and arrow-key moves (tested in `src/deck.test.ts`).
+- `src/dashboard.ts`: the Dashboard editor (HTML, drawn from `src/deck.ts`).
 
 ## Platform module
 

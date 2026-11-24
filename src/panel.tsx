@@ -730,10 +730,25 @@ function Ship({ s }: { s: Snapshot }) {
   )
 }
 
+const dashboardError = atom<string | null>(null)
+const openDashboard = () => {
+  set(dashboardError, null)
+  void plugin.request('dashboard.open').then(
+    (r) => set(dashboardError, r.ok ? null : r.error ?? 'Could not open the dashboard'),
+    (e: unknown) => set(dashboardError, e instanceof Error ? e.message : String(e))
+  )
+}
+
 export default function Panel() {
   const s = read(snapshot)
   return (
     <Stack gap="sm">
+      <Row gap="xs" align="center">
+        <Button size="sm" variant="outline" icon="bar-chart-3" tooltip="The whole control room as a wall of keys, full width in an editor tab" onPress={openDashboard}>
+          Open dashboard
+        </Button>
+        {read(dashboardError) ? <Text size="xs" tone="danger">{read(dashboardError)}</Text> : null}
+      </Row>
       <SourceError text={s.errors.orca} />
       {s.orcaAt ? (
         <Tabs label="View" defaultValue={read(tab)} onChange={(v) => set(tab, v)}>

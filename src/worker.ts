@@ -35,13 +35,15 @@ import { buildOverview } from './overview'
 import { resolveTool } from './platform'
 import { emptySnapshot, type Snapshot } from './protocol'
 import { nextSiteRows, parseSites, ping, siteAlarms, siteNotice } from './sites'
-import { ghRead, orcaRead, orcaWrite, PR_FIELDS, RUN_FIELDS } from './sources'
+import { ghRead, orcaRead, orcaShow, orcaWrite, PR_FIELDS, RUN_FIELDS } from './sources'
+import { fileURLToPath } from 'node:url'
 
 export const ORCA_EVERY_MS = 5_000
 export const GH_EVERY_MS = 60_000
 export const SITES_EVERY_MS = 60_000
 const FLOW_LIMIT = 40
 const SEEN_KEY = 'alarms.seen'
+const DASHBOARD_FILE = fileURLToPath(new URL('../Control Room/Dashboard.crdeck', import.meta.url))
 
 type Settings = { notifications: boolean; stuckMinutes: number; shipRepos: string; orcaPath: string; sites: string; allowAnswer: boolean }
 
@@ -269,6 +271,29 @@ export default function activate(orca: OrcaWorkerApi): void {
     } catch (e) {
       return { ok: false, error: message(e) }
     }
+  })
+
+  // The Dashboard is a custom editor, Orca's only full-page plugin surface, so it opens on a file: the
+  // empty one this plugin ships. The first time, Orca adds its folder as a folder workspace.
+  async function openDashboard(): Promise<{ ok: boolean; error?: string }> {
+    const bin = resolveTool('orca', (await readSettings(orca)).orcaPath)
+    if (!bin) return { ok: false, error: 'Orca CLI not found. Set its path in Settings.' }
+    try {
+      const { plugins } = await orcaRead<{ plugins: { pluginKey: string; isDev?: boolean; customEditors?: { id: string }[] }[] }>(bin, 'plugin list')
+      const mine = plugins.filter((p) => /\.control-room$/.test(p.pluginKey) && p.customEditors?.some((e) => e.id === 'dashboard'))
+      // shortcut: a dev-loaded copy wins over the installed one, so a dev load opens its own Dashboard; only matters while developing.
+      const key = (mine.find((p) => p.isDev) ?? mine[0])?.pluginKey
+      if (!key) return { ok: false, error: 'Control Room is not listed by Orca.' }
+      await orcaShow(bin, 'plugin open', [key, '--editor', DASHBOARD_FILE])
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: message(e) }
+    }
+  }
+  orca.panels.handle('dashboard.open', openDashboard)
+  orca.commands.register('dashboard.open', async () => {
+    const r = await openDashboard()
+    return r.ok ? 'Opened the Control Room dashboard' : r.error ?? 'Could not open the dashboard'
   })
 
   stop = () => {
