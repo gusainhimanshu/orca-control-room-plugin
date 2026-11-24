@@ -59,6 +59,8 @@ declare module 'orca' {
     'snapshot.get': { output: Snapshot }
     /** Navigation only: focus an agent's terminal, else show its workspace. */
     'navigate': { input: { worktreeId: string; address?: string | null }; output: { ok: boolean } }
+    /** Shows the Dashboard in an editor tab (Orca's main area). */
+    'dashboard.open': { output: { ok: boolean; error?: string } }
     /** The one write: resolve a decision gate the owner confirmed in the panel. */
     'gate.resolve': { input: { gateId: string; resolution: string }; output: { ok: boolean; error?: string } }
   }
