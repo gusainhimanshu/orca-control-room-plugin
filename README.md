@@ -46,9 +46,12 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   colours, with no motion.
 - **Queue**: *Needs you* first: every bot's items with status *needs you*, with the bot's ask and
   its options as plain text. Orca offers no way to answer a bot item for you outside its chat, and
-  a plugin cannot switch to one particular chat (chats are not terminals), so when Orca shows the
-  bot's chat the item gets one **Open chat to answer** button: it opens the bot's chats, and its
-  tooltip names the chat that owns the item so you can switch to it. It sends nothing. Agents waiting on your input or permission are added too, and open
+  a plugin cannot switch to one particular chat (chats are not terminals), so the item gets one
+  **Open '<chat>' to answer** button (*Open Home Chat to answer* for the Home Chat): it opens the
+  bot's home workspace (0.10.2; when Orca lists no home, the workspace Orca shows the chat in), and
+  a large amber callout under the row says *Now click the '<chat>' chat in <bot>'s sidebar*, then
+  the question and its options. The callout stays until you dismiss it or the item no longer needs
+  you. It sends nothing. Agents waiting on your input or permission are added too, and open
   orchestration decision gates, which you can answer here (below). Then
   *Open work*: every bot's other open items (in progress, planned), grouped by product, plus
   orchestration tasks that no bot item already tracks.
@@ -113,7 +116,7 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   - Pressing any key (0.8.0) opens a **details drawer** on the same page: beside the wall when the
     tab is wide, below it when narrow. It lists the rows behind the key, the same ones the sidebar's
     Dashboard view lists, and they act the same way: show the workspace or focus the terminal, open
-    the pull request, run or site in your browser (Orca asks first), *Open chat to answer*, or
+    the pull request, run or site in your browser (Orca asks first), *Open '<chat>' to answer*, or
     answer a decision gate after an inline confirm. Pressing the key again, **Close**, or Esc closes
     it and puts focus back on the key. Arrow keys move between keys, Enter presses one.
   - Only product keys glow and pulse, and only when red or amber; the pulse is off under
