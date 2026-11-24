@@ -1,10 +1,12 @@
 // The Dashboard: a wall of keys, full page in an Orca editor tab and narrow as the first sidebar panel. A key opens a drawer of the rows
 // behind it on the same page; those rows act like the sidebar's: show a workspace or focus a terminal,
 // open a pull request, run or site in the browser (Orca asks first), and answer a decision gate only
-// after an inline confirm. The keys and rows come from src/deck.ts; this file only draws.
-import { buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Detail, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
-import { MAX_RESOLUTION, type NeedRow } from './model'
-import { asSnapshot, type Snapshot } from './protocol'
+// after an inline confirm. In the sidebar (0.9.0) the header also switches to the Details tabs (src/details.ts).
+// The keys come from src/deck.ts and the rows from src/rows.ts; this file only draws.
+import { buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
+import { asCollapsed, asTab, detailsHtml, TABS, type DetailsState } from './details'
+import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
+import { act, ago, askGate, detailHtml, esc, gateState, type Env } from './rows'
 
 // Lucide outlines (ISC), the set Orca's own icon names come from.
 const ICONS: Record<KeyIcon | 'gauge', string> = {
@@ -154,9 +156,37 @@ button.row:hover { border-color: var(--orca-border); background: color-mix(in ok
 .key.open { outline: 2px solid var(--orca-ring); outline-offset: 3px; }
 .empty { padding: 48px 0; max-width: 46ch; color: var(--orca-muted-foreground); font-size: 14px; line-height: 1.5; }
 .empty strong { display: block; color: var(--orca-foreground); font-size: 16px; margin-bottom: 4px; }
+/* The Details view (0.9.0, sidebar only): tabs, collapsible product groups, gate answers. */
+.seg { display: inline-flex; border: 1px solid var(--orca-border); border-radius: 8px; overflow: hidden; }
+.seg .btn { border: 0; border-radius: 0; }
+.seg .btn + .btn { border-left: 1px solid var(--orca-border); }
+.seg .btn[aria-pressed="true"] { background: var(--orca-card); color: var(--orca-foreground); font-weight: 600; box-shadow: inset 0 -2px 0 var(--orca-ring); }
+.panel header { flex-wrap: wrap; row-gap: 6px; }
+.details h3 { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--orca-muted-foreground); }
+.details ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 4px; }
+.tab { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid transparent; background: none; color: var(--orca-muted-foreground); cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--orca-foreground); border-color: var(--orca-border); background: var(--orca-card); font-weight: 600; }
+.tab:focus-visible, .grp-h:focus-visible, .node:focus-visible, .seg .btn:focus-visible, .full:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 2px; }
+.grp { padding: 0; margin-top: 8px; border: 1px solid color-mix(in oklab, var(--orca-border) 70%, transparent); border-radius: 10px; }
+.grp[data-tone="warning"] { border-color: var(--ask); } .grp[data-tone="danger"] { border-color: var(--bad); }
+.grp-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; width: 100%; padding: 8px 10px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.grp-h .chev { width: 1em; color: var(--orca-muted-foreground); }
+.grp-h .t { font-size: 13px; font-weight: 600; }
+.grp-h .d { flex-basis: 100%; padding-left: calc(1em + 8px); font-size: 11.5px; color: var(--orca-muted-foreground); }
+.grp-b { padding: 0 8px 8px; }
+.warn-box { margin: 8px 0 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--ask); font-size: 12px; }
+.diagram { margin-top: 8px; padding: 8px; border: 1px solid var(--orca-border); border-radius: 10px; max-height: 480px; overflow-y: auto; display: grid; gap: 4px; }
+.dn { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dn .hook { color: var(--orca-muted-foreground); } .dn .w { color: var(--ask); }
+.dn .sub { font-size: 11.5px; color: var(--orca-muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node { font: inherit; font-size: 12px; padding: 2px 8px; border-radius: 8px; border: 1px solid currentColor; background: none; flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.node { cursor: pointer; }
+.node[data-tone="neutral"] { color: var(--orca-muted-foreground); } .node[data-tone="accent"] { color: var(--run); } .node[data-tone="success"] { color: var(--ok); }
+.node[data-tone="warning"] { color: var(--ask); } .node[data-tone="danger"] { color: var(--bad); }
+.foot { margin-top: 16px; }
 `
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 let snap: Snapshot | null = null
 let deck: Deck = { kpis: [], rows: [], bots: [] }
 let lit: KpiId | null = null
@@ -165,13 +195,21 @@ let loadError = ''
 const keysById = new Map<string, Key>()
 /** The key whose drawer is open. */
 let open: string | null = null
-/** What each drawer button does, by its data-act index; rebuilt with the drawer. */
-let acts: (() => void)[] = []
-// Answering a gate: typed drafts, the answer awaiting confirmation, how sending went.
-const drafts = new Map<string, string>()
-let pending: { key: string; text: string } | null = null
-let sending = false
-const outcome = new Map<string, { ok: boolean; text: string }>()
+/** The sidebar panel's view: the wall of keys or the Details tabs; with the tab and groups, remembered in plugin storage. */
+let view: 'dashboard' | 'details' = 'dashboard'
+const details: DetailsState = { tab: 'overview', collapsed: {} }
+const VIEW_KEY = 'panel.view'
+let isPanel = false
+
+const env: Env = {
+  snap: emptySnapshot(),
+  acts: [],
+  gate: gateState(),
+  navigate: (worktreeId, address) => void orca.plugin.request('navigate', { worktreeId, address }).catch(() => undefined),
+  openUrl: (url) => void orca.shell?.openExternal(url).catch(() => undefined),
+  resolveGate: (gateId, resolution) => orca.plugin.request('gate.resolve', { gateId, resolution }),
+  redraw: () => redraw()
+}
 
 function keyHtml(k: Key, extra = ''): string {
   keysById.set(k.id, k)
@@ -182,20 +220,17 @@ function keyHtml(k: Key, extra = ''): string {
     <span><span class="label">${esc(k.label)}</span>${k.sub ? `<span class="sub">${esc(k.sub)}</span>` : ''}</span></button>`
 }
 
-const ago = (at: number) => {
-  const s = Math.max(0, Math.round((Date.now() - at) / 1000))
-  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ago`
-}
-
 function meta(): string {
   if (!snap?.orcaAt) return ''
   const errs = Object.values(snap.errors).filter(Boolean)
   return `${errs.length ? `<span class="warn">${errs.length} source${errs.length > 1 ? 's' : ''} unreadable · </span>` : ''}updated ${ago(snap.orcaAt)}`
 }
 
+/** The focused control, to find it again after a redraw: a key by id, a row or tab by its action or id. */
+const focusMark = (el: HTMLElement | null) => (el?.dataset?.id ? `[data-id="${CSS.escape(el.dataset.id)}"]` : el?.dataset?.act ? `[data-act="${el.dataset.act}"]` : el?.id ? `#${CSS.escape(el.id)}` : null)
+
 function render(): void {
   const app = document.getElementById('app')!
-  const focused = (document.activeElement as HTMLElement | null)?.dataset?.id
   keysById.clear()
   if (!snap?.orcaAt) {
     app.innerHTML = snap?.errors.orca
@@ -205,6 +240,8 @@ function render(): void {
         : `<div class="empty"><strong>Reading Orca…</strong>The wall fills in after the first reading, within a few seconds.</div>`
     return
   }
+  if (isPanel && view === 'details') return drawDetails(app)
+  const focused = (document.activeElement as HTMLElement | null)?.dataset?.id
   deck = buildDeck(snap)
   const rows = deck.rows.length
     ? deck.rows.map((r) => `<div class="keys" role="group" aria-label="${esc(r.title)}">${r.keys.map((k) => keyHtml(k)).join('')}</div>`).join('<div style="height:12px"></div>')
@@ -228,125 +265,58 @@ function render(): void {
   if (inDrawer?.tagName !== 'INPUT') {
     drawDrawer(drawer)
     // Keep focus on the same drawer control across a reading.
-    const again = inDrawer?.dataset.act ? drawer.querySelector<HTMLElement>(`[data-act="${inDrawer.dataset.act}"]`) : inDrawer?.id ? document.getElementById(inDrawer.id) : null
-    again?.focus({ preventScroll: true })
+    const mark = focusMark(inDrawer)
+    if (mark) drawer.querySelector<HTMLElement>(mark)?.focus({ preventScroll: true })
   }
   layout.classList.toggle('with-drawer', !!open)
   applyLit()
   if (focused) (app.querySelector(`[data-id="${CSS.escape(focused)}"]`) as HTMLElement | null)?.focus()
 }
 
-// ---- The drawer: the rows behind the open key ----
-type Word = readonly [string, string]
-const AGENT_WORD: Record<string, Word> = { working: ['Working', 'accent'], waiting: ['Waiting on you', 'warning'], errored: ['Errored', 'danger'], idle: ['Idle', 'neutral'], done: ['Done', 'success'] }
-const CHECK_WORD: Record<string, Word> = { pass: ['Checks pass', 'success'], fail: ['Checks fail', 'danger'], pending: ['Checks running', 'warning'], none: ['No checks', 'neutral'] }
-const REVIEW_WORD: Record<string, Word> = { approved: ['Approved', 'success'], changes: ['Changes asked', 'danger'], required: ['Review needed', 'warning'], none: ['No review', 'neutral'] }
-const SITE_WORD: Record<string, Word> = { up: ['Up', 'success'], degraded: ['Degraded', 'warning'], down: ['Down', 'danger'] }
-const RUN_WORD: Record<string, Word> = { pass: ['CI passed', 'success'], fail: ['CI failed', 'danger'], running: ['CI running', 'warning'] }
-const pill = ([word, tone]: Word) => `<span class="pill" data-tone="${tone}">${esc(word)}</span>`
-
-/** Registers what a drawer button does and returns its attribute. */
-const act = (fn: () => void) => `data-act="${acts.push(fn) - 1}"`
-const goTo = (worktreeId: string | null, address: string | null) => () => {
-  if (worktreeId) void orca.plugin.request('navigate', { worktreeId, address }).catch(() => undefined)
-}
-const openUrl = (u: string) => () => {
-  if (/^https?:\/\//i.test(u)) void orca.shell?.openExternal(u).catch(() => undefined)
-}
-/** A row: a button when it goes somewhere, else plain. */
-const row = (fn: (() => void) | null, title: string, meta: string, extra = '') =>
-  fn
-    ? `<li><button class="row" ${act(fn)}><span class="t">${esc(title)}</span><span class="m">${meta}</span></button>${extra}</li>`
-    : `<li><div class="row"><span class="t">${esc(title)}</span><span class="m">${meta}</span>${extra}</div></li>`
-const list = (title: string, items: string[]) => (items.length ? `<h3>${esc(title)}</h3><ul>${items.join('')}</ul>` : '')
-
-const plainLabel = (o: string) => o.replace(/ \(recommended\)$/, '')
-const openChatTip = (n: NeedRow) =>
-  `Opens ${n.from ?? 'the bot'}'s chats. Orca can't open one chat or answer for you from here: switch to ${n.chat ? `the '${n.chat}' chat` : 'the chat that owns this item'} and answer there.`
-
-function needHtml(n: NeedRow): string {
-  const answerable = n.kind === 'gate' && !!snap?.allowAnswer
-  const openChat = n.kind === 'item' && !!n.worktreeId
-  const asked = [n.question, ...n.decisions.filter((d) => d.prompt && d.prompt !== n.question).map((d) => d.prompt)].filter(Boolean)
-  const options = n.decisions.flatMap((d) => d.options)
-  let body = asked.map((q) => `<p class="q">${esc(q)}</p>`).join('')
-  if (!answerable && options.length) body += `<div class="m">${options.map((o) => pill([o, 'neutral'])).join('')}</div>`
-  if (answerable) {
-    const done = outcome.get(n.key)
-    body +=
-      pending?.key === n.key
-        ? `<div class="ask"><p class="q">Send '${esc(pending.text)}' to the coordinator?</p><div class="acts">
-            <button class="btn go" ${sending ? 'disabled' : ''} ${act(() => void confirmGate(n))}>Confirm</button>
-            <button class="btn" ${act(() => ((pending = null), redraw()))}>Cancel</button></div></div>`
-        : `<div class="acts">${options.map((o) => `<button class="btn" ${act(() => askGate(n.key, plainLabel(o)))}>${esc(o)}</button>`).join('')}</div>
-           <div class="acts"><input data-draft="${esc(n.key)}" aria-label="Answer: ${esc(n.title)}" placeholder="Or write a short answer" maxlength="${MAX_RESOLUTION}" value="${esc(drafts.get(n.key) ?? '')}">
-            <button class="btn" ${act(() => askGate(n.key, drafts.get(n.key) ?? ''))}>Send</button></div>`
-    if (done) body += `<p class="q" style="color:var(${done.ok ? '--ok' : '--bad'})">${esc(done.text)}</p>`
-  }
-  if (openChat) body += `<div class="acts"><button class="btn" title="${esc(openChatTip(n))}" ${act(goTo(n.worktreeId, n.address))}>Open chat to answer</button></div>`
-  const meta = esc(n.from ? `${n.from} · ${n.product}` : n.product)
-  // A row holding buttons cannot itself be one.
-  return row(answerable || openChat || !n.worktreeId ? null : goTo(n.worktreeId, n.address), n.title, meta, body)
-}
-
-function detailHtml(d: Detail): string {
-  const shipItems = d.ship.flatMap((r) => [
-    ...(r.latestRun ? [row(r.latestRun.url ? openUrl(r.latestRun.url) : null, r.latestRun.name, `${pill(RUN_WORD[r.latestRun.result])}${esc(r.repo)}`)] : []),
-    ...(r.error ? [row(null, r.repo, pill([r.error, 'warning']))] : []),
-    ...r.prs.map((p) => row(openUrl(p.url), `#${p.number} ${p.title}`, `${p.draft ? pill(['Draft', 'neutral']) : ''}${pill(CHECK_WORD[p.checks])}${pill(REVIEW_WORD[p.review])}`))
-  ])
-  return [
-    ...d.bots.map(
-      (b) =>
-        `<p class="said">Doing now: ${esc(b.doing)}</p><div class="m">${pill([b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`, b.needsYou ? 'warning' : 'neutral'])}</div>` +
-        (b.lastSaid ? `<p class="said">Last said: ${esc(b.lastSaid)}</p>` : '') +
-        list('Workers', b.workers.map((w) => row(w.worktreeId ? goTo(w.worktreeId, w.address) : null, w.label, pill(AGENT_WORD[w.state]))))
-    ),
-    list('Needs you', d.needs.map(needHtml)),
-    list('Agents', d.agents.map((a) => row(goTo(a.worktreeId, a.address), a.title, `${pill(AGENT_WORD[a.state])}${esc(a.workspace)}${a.since ? ` · ${ago(a.since)}` : ''}${a.detail ? ` · ${esc(a.detail)}` : ''}`))),
-    list('Pull requests and CI', shipItems),
-    list('Sites', d.sites.map((x) => row(openUrl(x.url), x.name, `${pill(SITE_WORD[x.state])}${esc(x.error ?? (x.status ? `HTTP ${x.status}` : ''))} · ${x.ms} ms`))),
-    list('Open work', d.tasks.map((t) => row(null, t.title, esc(`${t.status} · ${t.via}`)))),
-    list('Recent messages', d.flows.map((f) => row(f.worktreeId ? goTo(f.worktreeId, f.address) : null, f.subject || f.type, `${f.waiting ? pill(['Waiting on you', 'warning']) : ''}${pill([f.type, 'neutral'])}${esc(`${f.from} → ${f.to}`)}${f.line ? ` · ${esc(f.line)}` : ''}`)))
-  ].join('')
-}
-
 function drawDrawer(drawer: HTMLElement): void {
   const k = snap ? keyById(deck, open) : null
-  acts = []
+  env.acts = []
   drawer.hidden = !k
   if (!k || !snap) return void (drawer.innerHTML = '')
   const d = rowsBehind(k.of, snap)
   const title = k.id.startsWith('kpi:') ? `${k.label} · ${k.value}` : k.label
   drawer.innerHTML = `<div class="bar"><div><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>${k.sub ? `<p>${esc(k.sub)}</p>` : ''}</div>
-    <button class="btn close" ${act(closeDrawer)} aria-label="Back to the keys (Esc)"><span class="x">Close</span><span class="back">← Dashboard</span></button></div>
-    ${isEmpty(d) ? '<p class="said">Nothing behind this key right now.</p>' : detailHtml(d)}`
+    <button class="btn close" ${act(env, closeDrawer)} aria-label="Back to the keys (Esc)"><span class="x">Close</span><span class="back">← Dashboard</span></button></div>
+    ${isEmpty(d) ? '<p class="said">Nothing behind this key right now.</p>' : detailHtml(env, d)}`
+}
+
+function drawDetails(app: HTMLElement): void {
+  const active = app.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null
+  // Never redraw under someone typing an answer.
+  if (active?.tagName === 'INPUT') return
+  env.acts = []
+  app.innerHTML = `<div class="details">${detailsHtml(env, details, detailsChanged)}</div>`
+  const mark = focusMark(active)
+  if (mark) app.querySelector<HTMLElement>(mark)?.focus({ preventScroll: true })
+}
+
+/** A tab picked or a group toggled: remember it, then draw again. */
+function detailsChanged(): void {
+  save()
+  render()
 }
 
 const redraw = () => {
+  if (isPanel && view === 'details') return render()
   const drawer = document.getElementById('drawer')
   if (drawer) drawDrawer(drawer)
 }
 
-function askGate(key: string, text: string): void {
-  if (!text.trim()) return
-  pending = { key, text: text.trim() }
-  outcome.delete(key)
-  redraw()
+function save(): void {
+  if (isPanel) void orca.storage.set(VIEW_KEY, { view, tab: details.tab, collapsed: details.collapsed }).catch(() => undefined)
 }
 
-async function confirmGate(n: NeedRow): Promise<void> {
-  if (sending || !pending) return
-  const text = pending.text
-  sending = true
-  redraw()
-  const r = await orca.plugin
-    .request('gate.resolve', { gateId: n.key.slice('gate:'.length), resolution: text })
-    .catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
-  pending = null
-  sending = false
-  outcome.set(n.key, { ok: r.ok, text: r.ok ? `Sent '${text}'.` : `Not sent: ${r.error ?? 'unknown error'}` })
-  redraw()
+function setView(next: typeof view): void {
+  view = next
+  for (const v of ['dashboard', 'details'] as const) document.getElementById(`v-${v}`)?.setAttribute('aria-pressed', String(v === view))
+  document.getElementById('app')!.innerHTML = ''
+  save()
+  render()
 }
 
 function openDrawer(k: Key): void {
@@ -384,8 +354,9 @@ function take(next: Snapshot): void {
   // A worker that just restarted has read nothing yet: keep the last reading over its empty one.
   if (!s.orcaAt && snap?.orcaAt && !s.errors.orca) return
   if (snap && !s.ghAt && snap.ghAt) Object.assign(s, { ghAt: snap.ghAt, ship: snap.ship })
-  if (snap && !s.sitesAt && snap.sitesAt) Object.assign(s, { sitesAt: snap.sitesAt, sites: snap.sites })
+  if (snap && !s.sitesAt && snap.sitesAt) Object.assign(s, { sitesAt: snap.sitesAt, sites: snap.sites, siteErrors: snap.siteErrors })
   snap = s
+  env.snap = s
   render()
   tick()
 }
@@ -403,41 +374,77 @@ function tick(): void {
 
 const DIRS: Record<string, Dir> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 
+/** Details: arrows move along the tabs (picking one) or up and down the controls below them. */
+function detailsArrow(el: HTMLElement, dir: Dir): boolean {
+  if (el.tagName === 'INPUT') return false
+  if (el.getAttribute('role') === 'tab') {
+    if (dir !== 'left' && dir !== 'right') return false
+    const i = TABS.indexOf(details.tab)
+    details.tab = TABS[(i + (dir === 'right' ? 1 : TABS.length - 1)) % TABS.length]
+    detailsChanged()
+    document.getElementById(`tab-${details.tab}`)?.focus()
+    return true
+  }
+  if (dir !== 'up' && dir !== 'down') return false
+  const all = Array.from(document.querySelectorAll<HTMLElement>('.details .tabpanel button:not([disabled])'))
+  const i = all.indexOf(el)
+  const next = i < 0 ? all[0] : all[i + (dir === 'down' ? 1 : -1)]
+  next?.focus()
+  return !!next
+}
+
 /** Draws the wall: `panel` for the sidebar panel (src/wall.ts), else the full-page editor (src/dashboard-editor.ts). */
 export function start(panel: boolean): void {
+  isPanel = panel
   const style = document.createElement('style')
   style.textContent = STYLE
   document.head.append(style)
   document.body.classList.toggle('panel', panel)
+  // The sidebar's one entry: Dashboard and Details side by side, then Open full page.
   const title = !panel
     ? `<h1>${icon('gauge')}Control Room</h1>`
-    : `<button class="btn full" id="full" title="The same wall, full width in an editor tab">${icon('layers')}Open full page</button>`
+    : `<div class="seg" role="group" aria-label="View"><button class="btn" id="v-dashboard" aria-pressed="true" title="The wall of keys">Dashboard</button><button class="btn" id="v-details" aria-pressed="false" title="Overview, Queue, Office, Flows and Ship as lists">Details</button></div>
+       <button class="btn full" id="full" title="The same wall, full width in an editor tab">${icon('layers')}Open full page</button>`
   document.body.innerHTML = `<header>${title}<span class="meta" id="meta" aria-live="polite"></span></header><main id="app"></main>`
   document.getElementById('full')?.addEventListener('click', () => void orca.plugin.request('dashboard.open').catch(() => undefined))
+  document.getElementById('v-dashboard')?.addEventListener('click', () => setView('dashboard'))
+  document.getElementById('v-details')?.addEventListener('click', () => setView('details'))
   render()
 
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement
     const button = target.closest<HTMLElement>('[data-act]')
-    if (button) return acts[Number(button.dataset.act)]?.()
+    if (button) return env.acts[Number(button.dataset.act)]?.()
     const el = target.closest<HTMLElement>('.key')
     const k = el && keysById.get(el.dataset.id ?? '')
     if (k) press(k)
   })
   document.addEventListener('input', (e) => {
     const el = e.target as HTMLInputElement
-    if (el.dataset.draft) drafts.set(el.dataset.draft, el.value)
+    if (el.dataset.draft) env.gate.drafts.set(el.dataset.draft, el.value)
   })
   document.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement
-    if (e.key === 'Enter' && el.dataset?.draft) return askGate(el.dataset.draft, (el as HTMLInputElement).value)
+    if (e.key === 'Enter' && el.dataset?.draft) return askGate(env, el.dataset.draft, (el as HTMLInputElement).value)
+    if (isPanel && view === 'details') {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Esc first drops an answer awaiting confirmation, then goes back to the Dashboard.
+        if (env.gate.pending) return ((env.gate.pending = null), render())
+        setView('dashboard')
+        return document.getElementById('v-dashboard')?.focus()
+      }
+      const dir = DIRS[e.key]
+      if (dir && detailsArrow(el, dir)) e.preventDefault()
+      return
+    }
     if (e.key === 'Escape' && (open || lit)) {
       e.preventDefault()
       return closeDrawer()
     }
     const dir = DIRS[e.key]
-    // Arrows move between keys; inside the drawer they stay the browser's.
-    if (!dir || el.closest?.('.drawer')) return
+    // Arrows move between keys; inside the drawer and the header they stay the browser's.
+    if (!dir || el.closest?.('.drawer, header')) return
     const keys = Array.from(document.querySelectorAll<HTMLElement>('.key'))
     if (!keys.length) return
     e.preventDefault()
@@ -454,6 +461,18 @@ export function start(panel: boolean): void {
   if (!panel) orca.document?.onDidChange(() => undefined)
   orca.plugin.on('snapshot', take)
   window.addEventListener('error', (e) => fail(e.message))
-  void orca.plugin.request('snapshot.get').then(take, (e: unknown) => fail(e instanceof Error ? e.message : String(e)))
+  // The panel opens on the view, tab and groups it showed last.
+  const remembered = panel
+    ? orca.storage.get(VIEW_KEY).then(
+        (v) => {
+          const o = (v && typeof v === 'object' ? v : {}) as { view?: unknown; tab?: unknown; collapsed?: unknown }
+          details.tab = asTab(o.tab)
+          details.collapsed = asCollapsed(o.collapsed)
+          if (o.view === 'details') setView('details')
+        },
+        () => undefined
+      )
+    : Promise.resolve()
+  void remembered.then(() => orca.plugin.request('snapshot.get')).then(take, (e: unknown) => fail(e instanceof Error ? e.message : String(e)))
   setInterval(tick, 1000)
 }
