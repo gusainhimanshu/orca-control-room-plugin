@@ -14,9 +14,13 @@ with the site's URL.
 
 ## Views
 
-Two sidebar panels:
+One sidebar entry, **Control Room** (0.9.0). Its header has three controls side by side:
+**Dashboard** (the wall of keys, the default), **Details** (the tabs below, as lists) and **Open full
+page**. The panel opens on the view, tab and groups you left it on (kept in the plugin's storage).
+In Details, Esc goes back to the Dashboard (first dropping an answer awaiting confirmation), Left
+and Right move between the tabs, Up and Down between the rows and group headers.
 
-- **Control Room** (0.8.0, the first panel): the Dashboard's wall of keys (below), drawn by the same
+- **Dashboard**: the Dashboard's wall of keys (below), drawn by the same
   page as the full-page Dashboard, so the same square keys with their glow: the totals, one row per
   product worst first with quiet things folded, then the bots. **Press a key for what is behind
   it**: the wall is replaced, in place, by the rows behind that key, which do what they do
@@ -27,7 +31,8 @@ Two sidebar panels:
   that product's agents, items, PRs with their checks, latest CI, sites and recent messages; a bot
   key its workers, items and the last thing it said; a summary key (*4 agents*) the rows it folded.
   Arrow keys move between keys. **Open full page** opens the full-page Dashboard.
-- **Control Room · Details**: the tabs below, as lists.
+- **Details**: the tabs below, drawn as HTML on the same page (until 0.8.0 they were a separate
+  *Control Room · Details* panel), with the same rows and actions as the drawer.
 
 - **Overview**: a diagram of who hands work to whom, top to bottom: **You** → each bot
   → the workers it started → their pull requests, one node per row, indented by tier, in a box
@@ -37,8 +42,8 @@ Two sidebar panels:
   Amber marks what waits on you: a bot with *needs you* items, a worker waiting on input. Press a
   node to go there: a bot's chat or a worker's terminal or workspace, or a PR in your browser.
   Below it, one card per bot: what it is doing now, open items, workers, and the first line of the
-  last thing it said. Built only from the reads below; drawn with Orca's components (a components
-  panel cannot draw SVG), so it follows the theme and has no motion.
+  last thing it said. Built only from the reads below; drawn as indented rows in Orca's theme
+  colours, with no motion.
 - **Queue**: *Needs you* first: every bot's items with status *needs you*, with the bot's ask and
   its options as plain text. Orca offers no way to answer a bot item for you outside its chat, and
   a plugin cannot switch to one particular chat (chats are not terminals), so when Orca shows the
@@ -64,7 +69,7 @@ Two sidebar panels:
 - **Collapsible groups** (0.5.0): in every tab each group header (a product; a bot on Overview;
   *Sites* on Ship) collapses and expands on a click or with the keyboard. A collapsed header keeps
   its name and summary (*3 open*, the CI run, *2 of 3 up*), and when something inside waits on you,
-  fails or is down it is outlined amber or red and says what (*1 waiting on you*, *1 down*).
+  fails or is down it is outlined amber or red and says what (*🟠 1 waiting on you*, *🔴 1 down*).
   Which ones you opened or closed is remembered per tab and product across reloads and updates,
   and a product that is gone is ignored.
 - **Collapsed by default, showing what runs** (0.6.0): every group starts collapsed unless you
@@ -79,8 +84,7 @@ Two sidebar panels:
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
-  with **Open full page** in the *Control Room* panel, **Open dashboard** in *Control Room ·
-  Details*, or *Control Room: Open dashboard* in the
+  with **Open full page** in the *Control Room* panel or *Control Room: Open dashboard* in the
   command palette. It reads the same snapshot as the sidebar and is read-only the same way.
   - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
     A zero stays grey. Pressing one opens its details (below) and also outlines the keys that count
@@ -95,7 +99,7 @@ Two sidebar panels:
   - Then one key per bot: its workers, and how many wait on you.
   - Pressing any key (0.8.0) opens a **details drawer** on the same page: beside the wall when the
     tab is wide, below it when narrow. It lists the rows behind the key, the same ones the sidebar's
-    Dashboard tab lists, and they act the same way: show the workspace or focus the terminal, open
+    Dashboard view lists, and they act the same way: show the workspace or focus the terminal, open
     the pull request, run or site in your browser (Orca asks first), *Open chat to answer*, or
     answer a decision gate after an inline confirm. Pressing the key again, **Close**, or Esc closes
     it and puts focus back on the key. Arrow keys move between keys, Enter presses one.
@@ -177,7 +181,7 @@ in its view; the rest of the panel keeps working.
 | `agent:read` | hear agent status changes to refresh early |
 | `workspace:write` | **only** `terminal.focus` and `workspace.open`, so a click can take you to an agent. Nothing renames, hides or runs commands |
 | `notifications:show` | the stuck-agent alarm and site down / back notifications |
-| `storage:own` | remember which alarms were already shown |
+| `storage:own` | remember which alarms were already shown, and the panel's view, tab and open groups |
 | `settings:own` | read the six settings below |
 
 ## Settings
@@ -201,7 +205,7 @@ orca plugin dev load ./orca-control-room-plugin      # prints what it would gran
 orca plugin dev load ./orca-control-room-plugin --approve <fingerprint>
 ```
 
-Then open **Control Room** (the key wall) or **Control Room · Details** in the right sidebar.
+Then open **Control Room** in the right sidebar; **Dashboard** and **Details** switch its view.
 
 ## Development
 
@@ -210,14 +214,14 @@ No build step and no dependencies.
 ```sh
 orca plugin validate .
 orca plugin check .
-orca plugin test .          # model, overview, platform, sites, deck and panel tests (invented data, no real requests)
+orca plugin test .          # model, overview, platform, sites, deck and details tests (invented data, no real requests)
 npx -y -p typescript@5.9.3 tsc -p . --noEmit  # type check
 ```
 
 CI (`.github/workflows/ci.yml`, Ubuntu and Windows, Node LTS) runs without Orca: the type check
 against a copy of Orca's generated types in `ci/orca-types/`, and the pure tests (model, overview,
-platform, sites, deck) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
-`assert`. The panel test needs Orca's `mount()`, so it runs only under `orca plugin test`. After
+platform, sites, deck, details) in plain Node through `ci/register.mjs`, which maps `orca/testing` to Node's `test` and
+`assert`. Every test is pure, so CI runs all of them. After
 upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci/orca-types/`.
 
 - `src/model.ts`: pure data → view-model functions (tested in `src/model.test.ts`).
@@ -232,8 +236,13 @@ upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci
   in `src/deck.test.ts`).
 - `src/dashboard.ts`: the wall of keys and its details drawer (HTML, drawn from `src/deck.ts`), started
   by `src/dashboard-editor.ts` as the full-page editor and by `src/wall.ts` as the first sidebar
-  panel (an open drawer replaces the wall there, and on any page narrower than 520 px).
-- `src/panel.tsx`: the *Control Room · Details* components panel (Overview, Queue, Office, Flows, Ship).
+  panel (an open drawer replaces the wall there, and on any page narrower than 520 px); in the
+  panel it also switches to the Details view and remembers the view.
+- `src/rows.ts`: the HTML rows both views draw (agents, needs-you items with the gate confirm, PRs,
+  runs, sites, open work, messages, workers); buttons carry `data-act` indexes into `env.acts`, so
+  they are tested without a DOM.
+- `src/details.ts`: the Details view (Overview, Queue, Office, Flows, Ship) with its collapsible
+  product groups (tested in `src/details.test.ts`).
 
 ## Platform module
 
