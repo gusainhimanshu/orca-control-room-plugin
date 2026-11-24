@@ -4,7 +4,7 @@ import { assert, test } from 'orca/testing'
 import { asCollapsed, asTab, detailsHtml, type DetailsState, type TabId } from './details'
 import type { AgentRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
-import { gateState, type Env } from './rows'
+import { gateState, takeSnap, type Env } from './rows'
 
 const snap: Snapshot = {
   ...emptySnapshot(),
@@ -219,23 +219,50 @@ test('with answering turned off, a gate shows its options as labels and nothing 
   assert.ok(v.has('Read-only'))
 })
 
-test("a bot item shows its options as text and one honest button to its bot's chats; nothing is sent", async () => {
+test("a bot item without a known home falls back to the chat's workspace, names the chat and shows the callout; nothing is sent", async () => {
   const item = { ...snap.needsYou[0], worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1', chat: 'Planning' }
   const v = details({ ...snap, needsYou: [item] })
   assert.ok(v.has('no'))
   assert.equal(v.buttons().filter((b) => /^(no|yes)/.test(b.text)).length, 0)
-  const open = v.button('Open chat to answer')
+  const open = v.button("Open 'Planning' to answer")
   assert.ok(open)
-  assert.match(open.attrs, /the 'Planning' chat/)
-  await v.press('Open chat to answer')
+  assert.match(open.attrs, /'Planning' in its chat list/)
+  assert.ok(!v.has('Now click'))
+  await v.press("Open 'Planning' to answer")
   assert.deepEqual(v.navigated, [{ worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1' }])
+  assert.ok(v.has("Now click the 'Planning' chat in Helper's sidebar then answer: Merge now? yes (recommended) no"))
   assert.deepEqual(v.sent, [])
+  await v.press('Dismiss')
+  assert.ok(!v.has('Now click'))
+})
+
+test("'Open … to answer' lands on the bot's home over the chat's workspace; Home Chat by name; the callout clears once answered", async () => {
+  const item = { ...snap.needsYou[0], worktreeId: 'f::/bots', address: 'orca_session_id:bot-chat-1', chat: 'Home', home: 'folder:home-h' }
+  const v = details({ ...snap, needsYou: [item] })
+  await v.press('Open Home Chat to answer')
+  assert.deepEqual(v.navigated, [{ worktreeId: 'folder:home-h', address: null }])
+  assert.ok(v.has("Now click Home Chat in Helper's sidebar then answer: Merge now?"))
+  // A reading where the item still needs the owner keeps it; one where it no longer does clears it.
+  takeSnap(v.env, { ...snap, needsYou: [item] })
+  assert.equal(v.env.gate.landed, 'item:i1')
+  takeSnap(v.env, { ...snap, needsYou: [] })
+  assert.equal(v.env.gate.landed, null)
+  takeSnap(v.env, { ...snap, needsYou: [item] })
+  v.env.redraw()
+  assert.ok(!v.has('Now click'))
+})
+
+test("a bot item with a home but no chat Orca shows still opens the home, with a generic label", async () => {
+  const v = details({ ...snap, needsYou: [{ ...snap.needsYou[0], home: 'folder:home-h' }] })
+  await v.press('Open chat to answer')
+  assert.deepEqual(v.navigated, [{ worktreeId: 'folder:home-h', address: null }])
+  assert.ok(v.has("Now click the chat that owns this item in Helper's sidebar"))
 })
 
 test("a bot item whose chat Orca doesn't show keeps its options as text and has no button", () => {
   const v = details(snap)
   assert.ok(v.has('no'))
-  assert.equal(v.button('Open chat to answer'), undefined)
+  assert.equal(v.button(/^Open .* to answer$/), undefined)
 })
 
 test('a Product:Name site shows with its product on Ship; an unknown product stays under Sites', () => {

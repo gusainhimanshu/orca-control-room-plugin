@@ -164,6 +164,7 @@ test("a needs-you item navigates to its bot's chat when Orca shows that chat as 
     office,
     workers: [],
     runs: [],
+    homes: new Map([['Helper', 'folder:home-h']]),
     items: [
       {
         bot: 'Helper',
@@ -178,6 +179,8 @@ test("a needs-you item navigates to its bot's chat when Orca shows that chat as 
   assert.deepEqual([byKey.get('item:i1')?.worktreeId, byKey.get('item:i1')?.address], ['f::/bots', 'orca_session_id:bot-chat-1'])
   assert.deepEqual([byKey.get('item:i2')?.worktreeId, byKey.get('item:i2')?.address], [null, null])
   assert.deepEqual([byKey.get('item:i1')?.chat, byKey.get('item:i2')?.chat], ['Planning', null])
+  // The asking bot's home rides along: "Open … to answer" prefers it.
+  assert.deepEqual([byKey.get('item:i1')?.home, byKey.get('item:i2')?.home], ['folder:home-h', 'folder:home-h'])
 })
 
 test('a gate answer is refused unless allowed, still waiting, and sane text', () => {

@@ -6,7 +6,7 @@
 import { activeOnly, buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
 import { asCollapsed, asTab, detailsHtml, TABS, type DetailsState } from './details'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
-import { act, ago, askGate, detailHtml, esc, gateState, type Env } from './rows'
+import { act, ago, askGate, detailHtml, esc, gateState, takeSnap, type Env } from './rows'
 
 // Lucide outlines (ISC), the set Orca's own icon names come from.
 const ICONS: Record<KeyIcon | 'gauge', string> = {
@@ -152,6 +152,10 @@ button.row:hover { border-color: var(--orca-border); background: color-mix(in ok
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .acts input { flex: 1 1 160px; min-width: 0; font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--orca-border); background: var(--orca-background); color: var(--orca-foreground); }
 .ask { margin-top: 8px; padding: 8px; border-radius: 8px; border: 1px solid var(--ask); }
+.callout { margin-top: 10px; padding: 12px 14px; border-radius: 10px; border: 2px solid var(--ask); border-left-width: 6px; background: color-mix(in oklab, var(--ask) 10%, var(--orca-card)); font-size: 14px; }
+.callout .big { margin: 0 0 6px; font-size: 18px; font-weight: 650; line-height: 1.3; color: var(--ask); overflow-wrap: anywhere; }
+.callout p { margin: 0; overflow-wrap: anywhere; }
+.callout .opts { display: block; list-style: disc; margin: 6px 0 0; padding-left: 20px; }
 .said { font-size: 12px; margin: 8px 0 0; }
 .key.open { outline: 2px solid var(--orca-ring); outline-offset: 3px; }
 .empty { padding: 48px 0; max-width: 46ch; color: var(--orca-muted-foreground); font-size: 14px; line-height: 1.5; }
@@ -362,7 +366,7 @@ function take(next: Snapshot): void {
   if (snap && !s.ghAt && snap.ghAt) Object.assign(s, { ghAt: snap.ghAt, ship: snap.ship })
   if (snap && !s.sitesAt && snap.sitesAt) Object.assign(s, { sitesAt: snap.sitesAt, sites: snap.sites, siteErrors: snap.siteErrors })
   snap = s
-  env.snap = s
+  takeSnap(env, s)
   render()
   tick()
 }

@@ -6,9 +6,15 @@ import type { Detail } from './deck'
 import { MAX_RESOLUTION, type NeedRow } from './model'
 import type { Snapshot } from './protocol'
 
-/** Answering a gate: typed drafts, the answer awaiting confirmation, how sending went. */
-export type GateState = { drafts: Map<string, string>; pending: { key: string; text: string } | null; sending: boolean; outcome: Map<string, { ok: boolean; text: string }> }
-export const gateState = (): GateState => ({ drafts: new Map(), pending: null, sending: false, outcome: new Map() })
+/** Answering a gate: typed drafts, the answer awaiting confirmation, how sending went; `landed`: the item whose chat was just opened. */
+export type GateState = { drafts: Map<string, string>; pending: { key: string; text: string } | null; sending: boolean; outcome: Map<string, { ok: boolean; text: string }>; landed: string | null }
+export const gateState = (): GateState => ({ drafts: new Map(), pending: null, sending: false, outcome: new Map(), landed: null })
+
+/** Takes a new reading; the "now click" callout goes once its item no longer needs the owner. */
+export function takeSnap(env: Env, snap: Snapshot): void {
+  env.snap = snap
+  if (env.gate.landed && !snap.needsYou.some((n) => n.key === env.gate.landed)) env.gate.landed = null
+}
 
 export type Env = {
   snap: Snapshot
@@ -53,9 +59,25 @@ export const list = (title: string, items: string[]) => (items.length ? `<h3>${e
 export const ul = (items: string[]) => (items.length ? `<ul>${items.join('')}</ul>` : '')
 
 const plainLabel = (o: string) => o.replace(/ \(recommended\)$/, '')
-/** Orca can show the bot's workspace but not switch to one of its chats, so the tooltip names the chat to pick. */
+/** The chat as the owner sees it in the bot's sidebar: Home Chat, a titled chat, or unknown. */
+const chatName = (n: NeedRow) => (n.chat === 'Home' ? 'Home Chat' : n.chat ? `'${n.chat}'` : null)
+/** Orca can show the bot's home but not switch to one of its chats, so the button lands there and the callout names the chat to pick. */
 const openChatTip = (n: NeedRow) =>
-  `Opens ${n.from ?? 'the bot'}'s chats. Orca can't open one chat or answer for you from here: switch to ${n.chat ? `the '${n.chat}' chat` : 'the chat that owns this item'} and answer there.`
+  `Opens ${n.from ?? 'the bot'}'s home. Orca can't open one chat or answer for you from here: pick ${chatName(n) ?? 'the chat that owns this item'} in its chat list and answer there.`
+/** Where "Open chat to answer" goes: the bot's home, else the workspace Orca shows the chat in. */
+export const answerTarget = (n: NeedRow): { worktreeId: string; address: string | null } | null =>
+  n.home ? { worktreeId: n.home, address: null } : n.worktreeId ? { worktreeId: n.worktreeId, address: n.address } : null
+
+/** The big amber "now click" callout shown after "Open … to answer", until dismissed or the item is answered. */
+function landedHtml(env: Env, n: NeedRow): string {
+  const bot = n.from ?? 'the bot'
+  const name = chatName(n)
+  const click = name === 'Home Chat' ? `Now click Home Chat in ${bot}'s sidebar` : name ? `Now click the ${name} chat in ${bot}'s sidebar` : `Now click the chat that owns this item in ${bot}'s sidebar`
+  const options = n.decisions.flatMap((d) => d.options)
+  return `<div class="callout" role="status"><p class="big">${esc(click)}</p>
+    <p>then answer: ${esc(n.question || n.title)}</p>${options.length ? `<ul class="opts">${options.map((o) => `<li>${esc(o)}</li>`).join('')}</ul>` : ''}
+    <div class="acts"><button class="btn" ${act(env, () => ((env.gate.landed = null), env.redraw()))}>Dismiss</button></div></div>`
+}
 
 /** Step 1: pick an option or type an answer; nothing is sent here. */
 export function askGate(env: Env, key: string, text: string): void {
@@ -82,7 +104,8 @@ export async function confirmGate(env: Env, n: NeedRow): Promise<void> {
 export function needHtml(env: Env, n: NeedRow): string {
   const g = env.gate
   const answerable = n.kind === 'gate' && env.snap.allowAnswer
-  const openChat = n.kind === 'item' && !!n.worktreeId
+  const target = n.kind === 'item' ? answerTarget(n) : null
+  const openChat = !!target
   const asked = [n.question, ...n.decisions.filter((d) => d.prompt && d.prompt !== n.question).map((d) => d.prompt)].filter(Boolean)
   const options = n.decisions.flatMap((d) => d.options)
   let body = asked.map((q) => `<p class="q">${esc(q)}</p>`).join('')
@@ -99,7 +122,15 @@ export function needHtml(env: Env, n: NeedRow): string {
             <button class="btn" ${act(env, () => askGate(env, n.key, g.drafts.get(n.key) ?? ''))}>Send</button></div>`
     if (done) body += `<p class="q" style="color:var(${done.ok ? '--ok' : '--bad'})">${esc(done.text)}</p>`
   }
-  if (openChat) body += `<div class="acts"><button class="btn" title="${esc(openChatTip(n))}" ${act(env, goTo(env, n.worktreeId, n.address))}>Open chat to answer</button></div>`
+  if (target) {
+    const land = () => {
+      env.gate.landed = n.key
+      env.navigate(target.worktreeId, target.address)
+      env.redraw()
+    }
+    body += `<div class="acts"><button class="btn" title="${esc(openChatTip(n))}" ${act(env, land)}>Open ${esc(chatName(n) ?? 'chat')} to answer</button></div>`
+    if (g.landed === n.key) body += landedHtml(env, n)
+  }
   const meta = esc(n.from ? `${n.from} · ${n.product}` : n.product) + (n.since ? ` · ${ago(n.since)}` : '')
   // A row holding buttons cannot itself be one.
   return row(env, answerable || openChat || !n.worktreeId ? null : goTo(env, n.worktreeId, n.address), n.title, meta, body)

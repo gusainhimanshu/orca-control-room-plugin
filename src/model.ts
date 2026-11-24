@@ -110,6 +110,8 @@ export type NeedRow = {
   address: string | null
   /** A bot item's chat title, when known: Orca can show the bot's workspace but not switch to one chat. */
   chat?: string | null
+  /** The asking bot's home workspace (`botHomes`): where "Open chat to answer" lands, since its chat list is there. */
+  home?: string | null
 }
 /** `via`: the bot that owns the item, or the Run's objective. */
 export type TaskRow = { key: string; title: string; status: string; via: string }
@@ -227,6 +229,8 @@ export type QueueInput = {
   /** "owner/name" (lowercase) -> product, for items that link a pull request. */
   repoProducts: Map<string, string>
   office: Group<AgentRow>[]
+  /** Bot name -> its home workspace (`botHomes`). */
+  homes?: Map<string, string>
 }
 
 const repoIdOf = (worktreeId?: string | null) => worktreeId?.split('::')[0] ?? ''
@@ -300,7 +304,8 @@ export function buildQueue(input: QueueInput): { needsYou: NeedRow[]; open: Grou
           since: item.lastActivityAt ?? item.updatedAt ?? null,
           worktreeId: chat?.worktreeId ?? null,
           address: chat?.address ?? null,
-          chat: item.chat?.title ?? null
+          chat: item.chat?.title ?? null,
+          home: input.homes?.get(bot) ?? null
         })
       } else {
         open.push({ key: `item:${item.uid}`, product, title, status: STATUS_WORD[status] ?? status, via: bot })
