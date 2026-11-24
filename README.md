@@ -14,7 +14,22 @@ with the site's URL.
 
 ## Views
 
-- **Overview** (first tab): a diagram of who hands work to whom, top to bottom: **You** → each bot
+Two sidebar panels:
+
+- **Control Room** (0.8.0, the first panel): the Dashboard's wall of keys (below), drawn by the same
+  page as the full-page Dashboard, so the same square keys with their glow: the totals, one row per
+  product worst first with quiet things folded, then the bots. **Press a key for what is behind
+  it**: the wall is replaced, in place, by the rows behind that key, which do what they do
+  elsewhere (focus an agent or show its workspace, open a PR or site with Orca's confirm, *Open
+  chat to answer*, answer a decision gate after a confirm). **← Dashboard** or Esc goes back, and
+  focus returns to the key. A total lists its rows from every product (*Needs you* → the needs-you
+  cards, *Working* → the agents working, *PRs failing* → the failing PRs); a product key lists
+  that product's agents, items, PRs with their checks, latest CI, sites and recent messages; a bot
+  key its workers, items and the last thing it said; a summary key (*4 agents*) the rows it folded.
+  Arrow keys move between keys. **Open full page** opens the full-page Dashboard.
+- **Control Room · Details**: the tabs below, as lists.
+
+- **Overview**: a diagram of who hands work to whom, top to bottom: **You** → each bot
   → the workers it started → their pull requests, one node per row, indented by tier, in a box
   that scrolls when tall. A bot's workers come from the Dispatches its open items link and the
   Dispatches it mailed; a pull request hangs off the worker of the item that links it (else off
@@ -64,11 +79,12 @@ with the site's URL.
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
-  with **Open dashboard** at the top of the sidebar, or *Control Room: Open dashboard* in the
+  with **Open full page** in the *Control Room* panel, **Open dashboard** in *Control Room ·
+  Details*, or *Control Room: Open dashboard* in the
   command palette. It reads the same snapshot as the sidebar and is read-only the same way.
   - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
-    A zero stays grey. Pressing one outlines the keys that count toward it and dims the rest; press
-    it again or Esc to clear. It opens nothing.
+    A zero stays grey. Pressing one opens its details (below) and also outlines the keys that count
+    toward it, dimming the rest.
   - Then one row per product, worst first: the product's own wide key (red when something fails or
     is down, amber when something waits on you, blue when something works, green when all is
     quiet), then its keys, worst first: items and gates waiting on you, agents working, waiting or
@@ -77,9 +93,12 @@ with the site's URL.
     (*4 agents idle*, *3 PRs green*, *2 sites up*). Sites with no product share a *Sites* row, and
     products with nothing to show share the last row.
   - Then one key per bot: its workers, and how many wait on you.
-  - Pressing a key does what the sidebar does: shows the workspace or focuses the terminal, or opens
-    the pull request, run or site in your browser (Orca asks first). Summary keys only show.
-    Arrow keys move between keys, Enter presses one.
+  - Pressing any key (0.8.0) opens a **details drawer** on the same page: beside the wall when the
+    tab is wide, below it when narrow. It lists the rows behind the key, the same ones the sidebar's
+    Dashboard tab lists, and they act the same way: show the workspace or focus the terminal, open
+    the pull request, run or site in your browser (Orca asks first), *Open chat to answer*, or
+    answer a decision gate after an inline confirm. Pressing the key again, **Close**, or Esc closes
+    it and puts focus back on the key. Arrow keys move between keys, Enter presses one.
   - Only product keys glow and pulse, and only when red or amber; the pulse is off under
     *reduce motion*. Colours follow Orca's light or dark theme.
   - Where it lives: Orca plugins have no main-area panel; a custom editor is the one full-page
@@ -182,7 +201,7 @@ orca plugin dev load ./orca-control-room-plugin      # prints what it would gran
 orca plugin dev load ./orca-control-room-plugin --approve <fingerprint>
 ```
 
-Then open **Control Room** in the right sidebar.
+Then open **Control Room** (the key wall) or **Control Room · Details** in the right sidebar.
 
 ## Development
 
@@ -208,10 +227,13 @@ upgrading Orca, refresh the copy: `orca plugin types . && cp -r .orca/types/. ci
   (tested in `src/sites.test.ts`).
 - `src/sources.ts`: the command allow-list.
 - `src/worker.ts`: polling, alarms, status bar, navigation.
-- `src/panel.tsx`: the components panel.
 - `src/deck.ts`: the Dashboard's keys: totals, product rows worst first, folded summary keys, bot
-  keys, what a total outlines, and arrow-key moves (tested in `src/deck.test.ts`).
-- `src/dashboard.ts`: the Dashboard editor (HTML, drawn from `src/deck.ts`).
+  keys, what a total outlines, the rows behind each key (`rowsBehind`), and arrow-key moves (tested
+  in `src/deck.test.ts`).
+- `src/dashboard.ts`: the wall of keys and its details drawer (HTML, drawn from `src/deck.ts`), started
+  by `src/dashboard-editor.ts` as the full-page editor and by `src/wall.ts` as the first sidebar
+  panel (an open drawer replaces the wall there, and on any page narrower than 520 px).
+- `src/panel.tsx`: the *Control Room · Details* components panel (Overview, Queue, Office, Flows, Ship).
 
 ## Platform module
 

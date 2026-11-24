@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Control room: who hands work to whom, what waits on you (decision gates answered after a confirm), every agent by product, each product's pull requests and CI, pings of the sites you list, and a full-page Dashboard of keys.",
   "engines": {
     "orca": ">=1.4.259"
@@ -13,9 +13,15 @@
   "contributes": {
     "panels": [
       {
-        "id": "control-room",
+        "id": "wall",
         "title": "Control Room",
         "icon": "gauge",
+        "entry": "src/wall.ts"
+      },
+      {
+        "id": "control-room",
+        "title": "Control Room · Details",
+        "icon": "layers",
         "entry": "src/panel.tsx",
         "ui": "components"
       }
@@ -25,7 +31,7 @@
         "id": "dashboard",
         "title": "Control Room",
         "extensions": [".crdeck"],
-        "entry": "src/dashboard.ts"
+        "entry": "src/dashboard-editor.ts"
       }
     ],
     "commands": [

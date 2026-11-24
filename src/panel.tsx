@@ -36,7 +36,8 @@ import { siteGroup, type SiteRow, type SiteState } from './sites'
 
 // Persisted so a reopened panel shows the last reading at once while a restarted worker reads again.
 const snapshot = atom<Snapshot>('snapshot', emptySnapshot(), { persist: 'plugin' })
-const tab = atom('tab', 'overview', { persist: 'plugin' })
+// The Dashboard tab of an 0.8.0 preview moved to its own visual panel; a tab remembered as it falls back to Overview.
+const tab = atom('tab', 'overview', { persist: 'plugin', version: 3, migrate: (v) => (typeof v === 'string' && v !== 'dashboard' ? v : 'overview') })
 // Groups the user opened (false) or closed (true) as 'tab:product'; absent means collapsed, the default
 // since 0.6.0 (0.5.0 stored only `true`, which reads the same). Stale products are just ignored.
 const collapsed = atom<Record<string, boolean>>('collapsed', {}, { persist: 'plugin' })
@@ -447,6 +448,24 @@ function botPreview(b: OverviewBot) {
   }
 }
 
+function BotBody({ b }: { b: OverviewBot }) {
+  return (
+    <Stack gap="xs">
+      <Text size="xs">{`Doing now: ${b.doing}`}</Text>
+      <Row gap="xs" wrap>
+        <Badge tone={b.needsYou ? 'warning' : 'neutral'}>{b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`}</Badge>
+        <Badge tone="neutral">{`${b.workers.length} worker${b.workers.length === 1 ? '' : 's'}`}</Badge>
+      </Row>
+      {b.lastSaid ? (
+        <Text size="xs" muted truncate>
+          {`Last said: ${b.lastSaid}`}
+        </Text>
+      ) : null}
+      {b.workers.length ? <WorkerList label={`${b.name} workers`} rows={b.workers} /> : null}
+    </Stack>
+  )
+}
+
 function Overview({ s }: { s: Snapshot }) {
   if (!s.overview.length)
     return (
@@ -473,19 +492,7 @@ function Overview({ s }: { s: Snapshot }) {
           alert={b.needsYou ? { tone: 'warning', text: `${b.needsYou} need you` } : null}
           {...botPreview(b)}
         >
-          <Stack gap="xs">
-            <Text size="xs">{`Doing now: ${b.doing}`}</Text>
-            <Row gap="xs" wrap>
-              <Badge tone={b.needsYou ? 'warning' : 'neutral'}>{b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`}</Badge>
-              <Badge tone="neutral">{`${b.workers.length} worker${b.workers.length === 1 ? '' : 's'}`}</Badge>
-            </Row>
-            {b.lastSaid ? (
-              <Text size="xs" muted truncate>
-                {`Last said: ${b.lastSaid}`}
-              </Text>
-            ) : null}
-            {b.workers.length ? <WorkerList label={`${b.name} workers`} rows={b.workers} /> : null}
-          </Stack>
+          <BotBody b={b} />
         </ProductGroup>
       ))}
     </Stack>

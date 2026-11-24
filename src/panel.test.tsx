@@ -1,5 +1,5 @@
 // The panel draws a snapshot and rows only navigate.
-import { assert, mockHost, mount, test } from 'orca/testing'
+import { assert, mockHost, mount, stored, test } from 'orca/testing'
 import * as panel from './panel'
 import { emptySnapshot, type Snapshot } from './protocol'
 
@@ -406,5 +406,16 @@ test('a group the user expanded before stays expanded after a reload', async () 
   assert.ok(view.find({ label: 'Agent c' }))
   assert.equal(groupOf(view, 'office:Alpha').description, '1 idle')
   assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('a Dashboard tab an 0.8.0 preview remembered falls back to Overview; any other tab is kept', async () => {
+  const host = () => mockHost({ requests: { 'snapshot.get': () => snap } })
+  let view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('dashboard', 2) } } })
+  assert.ok(view.summary().includes('Tabs "View": "Overview" selected'), String(view.summary()))
+  assert.equal(view.find({ role: 'button', text: '1 Needs you' }), null)
+  await view.unmount()
+  view = await mount(panel, { host: host(), persisted: { plugin: { tab: stored('ship', 1) } } })
+  assert.ok(view.summary().includes('Tabs "View": "Ship" selected'), String(view.summary()))
   await view.unmount()
 })
