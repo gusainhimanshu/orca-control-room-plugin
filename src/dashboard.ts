@@ -102,6 +102,8 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 let snap: Snapshot | null = null
 let deck: Deck = { kpis: [], rows: [], bots: [] }
 let lit: KpiId | null = null
+/** Why the first reading has not arrived (the worker refused, or drawing failed), shown instead of waiting forever. */
+let loadError = ''
 const keysById = new Map<string, Key>()
 
 function keyHtml(k: Key, extra = ''): string {
@@ -132,7 +134,9 @@ function render(): void {
   if (!snap?.orcaAt) {
     app.innerHTML = snap?.errors.orca
       ? `<div class="empty"><strong>Orca could not be read</strong>${esc(snap.errors.orca)}</div>`
-      : `<div class="empty"><strong>Reading Orca…</strong>The wall fills in after the first reading, within a few seconds.</div>`
+      : loadError
+        ? `<div class="empty"><strong>The Dashboard could not load</strong>${esc(loadError)}</div>`
+        : `<div class="empty"><strong>Reading Orca…</strong>The wall fills in after the first reading, within a few seconds.</div>`
     return
   }
   deck = buildDeck(snap)
@@ -178,6 +182,12 @@ function take(next: Snapshot): void {
   tick()
 }
 
+function fail(why: string): void {
+  if (snap?.orcaAt) return
+  loadError = why
+  render()
+}
+
 function tick(): void {
   const m = document.getElementById('meta')
   if (m) m.innerHTML = meta()
@@ -219,7 +229,8 @@ function start(): void {
   // The file's text is never used, but asking for it is what tells Orca the editor is ready (and themed).
   orca.document?.onDidChange(() => undefined)
   orca.plugin.on('snapshot', take)
-  void orca.plugin.request('snapshot.get').then(take, () => undefined)
+  window.addEventListener('error', (e) => fail(e.message))
+  void orca.plugin.request('snapshot.get').then(take, (e: unknown) => fail(e instanceof Error ? e.message : String(e)))
   setInterval(tick, 1000)
 }
 
