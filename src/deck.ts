@@ -1,6 +1,6 @@
 // The Dashboard as a wall of keys: pure functions from a Snapshot to rows of keys. No I/O, no clock
 // beyond the `now` passed in, no DOM: src/dashboard.ts draws what these return.
-import type { AgentState, Checks, PrRow, ShipRow } from './model'
+import type { AgentRow, AgentState, Checks, FlowRow, NeedRow, PrRow, ShipRow, TaskRow } from './model'
 import type { OverviewBot } from './overview'
 import type { Snapshot } from './protocol'
 import { siteGroup, type SiteRow } from './sites'
@@ -10,7 +10,14 @@ export type KeyTone = 'neutral' | 'accent' | 'warning' | 'danger' | 'success'
 export type KpiId = 'needs' | 'working' | 'waiting' | 'errored' | 'prsFailing' | 'sitesDown'
 /** Names from Orca's icon set; src/dashboard.ts draws each one. */
 export type KeyIcon = 'flag' | 'agent' | 'pause' | 'error' | 'branch' | 'globe' | 'folder' | 'bot' | 'rocket' | 'check' | 'layers'
-export type KeyAction = { nav: { worktreeId: string; address: string | null } } | { url: string } | null
+/**
+ * What a key stands for; `rowsBehind` turns it into the rows its detail view lists. A product key
+ * is `part: 'all'`; a summary key names what it folded; a leaf key names its one row by `ref`.
+ */
+export type Scope =
+  | { kpi: KpiId }
+  | { product: string; part: 'all' | 'idle' | 'prs' | 'sites' | 'open' | 'need' | 'agent' | 'pr' | 'site' | 'run'; ref?: string }
+  | { bot: string }
 export type Key = {
   id: string
   icon: KeyIcon
@@ -23,8 +30,8 @@ export type Key = {
   tone: KeyTone
   /** The KPI keys that outline this one when pressed. */
   kpis: KpiId[]
-  /** What pressing it does; null keys only show (summaries). */
-  action: KeyAction
+  /** What pressing it opens: the rows behind it. */
+  of: Scope
   /** A product key: the first, larger key of its row. */
   head?: boolean
 }
@@ -39,8 +46,6 @@ export const worstTone = (tones: KeyTone[]): KeyTone =>
 export const pulses = (k: Pick<Key, 'tone'>) => k.tone === 'warning' || k.tone === 'danger'
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
-const nav = (worktreeId: string | null, address: string | null): KeyAction => (worktreeId ? { nav: { worktreeId, address } } : null)
-const url = (u: string | null | undefined): KeyAction => (u && /^https?:\/\//i.test(u) ? { url: u } : null)
 
 // ---- KPIs ----
 export type Kpis = Record<KpiId, number>
@@ -78,7 +83,7 @@ export function kpiKeys(k: Kpis): Key[] {
     value: String(k[d.id]),
     tone: k[d.id] > 0 ? d.tone : 'neutral',
     kpis: [d.id],
-    action: null
+    of: { kpi: d.id }
   }))
 }
 
@@ -105,18 +110,19 @@ export const SITES_ROW = 'Sites'
 export function productKeys(product: string, s: Snapshot, sites: SiteRow[]): Key[] {
   const keys: Key[] = []
   const id = (k: string) => `${product}:${k}`
+  const of = (part: Extract<Scope, { part: unknown }>['part'], ref?: string): Scope => ({ product, part, ref })
 
   // Bot items and gates waiting on you; agents waiting on you come with the agents below.
   for (const n of s.needsYou.filter((x) => x.product === product && x.kind !== 'agent')) {
-    keys.push({ id: id(n.key), icon: 'flag', label: n.title, sub: n.from ? `${n.from} asks` : 'Decision gate', tone: 'warning', kpis: ['needs'], action: nav(n.worktreeId, n.address) })
+    keys.push({ id: id(n.key), icon: 'flag', label: n.title, sub: n.from ? `${n.from} asks` : 'Decision gate', tone: 'warning', kpis: ['needs'], of: of('need', n.key) })
   }
   const agents = s.office.find((g) => g.product === product)?.items ?? []
   for (const a of agents.filter((x) => x.state !== 'idle')) {
     const d = AGENT[a.state]
-    keys.push({ id: id(`agent:${a.key}`), icon: d.icon, label: a.title, sub: d.word, tone: d.tone, kpis: d.kpis, action: nav(a.worktreeId, a.address) })
+    keys.push({ id: id(`agent:${a.key}`), icon: d.icon, label: a.title, sub: d.word, tone: d.tone, kpis: d.kpis, of: of('agent', a.key) })
   }
   const idle = agents.filter((x) => x.state === 'idle').length
-  if (idle) keys.push({ id: id('idle'), icon: 'agent', label: plural(idle, 'agent'), value: String(idle), sub: 'idle', tone: 'neutral', kpis: [], action: null })
+  if (idle) keys.push({ id: id('idle'), icon: 'agent', label: plural(idle, 'agent'), value: String(idle), sub: 'idle', tone: 'neutral', kpis: [], of: of('idle') })
 
   const ship = s.ship.filter((r) => r.product === product)
   const prs = ship.flatMap((r) => r.prs)
@@ -130,36 +136,36 @@ export function productKeys(product: string, s: Snapshot, sites: SiteRow[]): Key
       sub: changes ? 'changes asked' : PR[p.checks].word,
       tone: changes ? 'warning' : PR[p.checks].tone,
       kpis: prFailing(p) ? ['prsFailing'] : [],
-      action: url(p.url)
+      of: of('pr', p.url)
     })
   }
   const quiet = prs.filter((x) => !(x.checks === 'fail' || x.checks === 'pending' || x.review === 'changes'))
   if (quiet.length) {
     const green = quiet.every((x) => x.checks === 'pass')
-    keys.push({ id: id('prs'), icon: 'branch', label: plural(quiet.length, 'PR'), value: String(quiet.length), sub: green ? 'green' : 'nothing failing', tone: green ? 'success' : 'neutral', kpis: [], action: null })
+    keys.push({ id: id('prs'), icon: 'branch', label: plural(quiet.length, 'PR'), value: String(quiet.length), sub: green ? 'green' : 'nothing failing', tone: green ? 'success' : 'neutral', kpis: [], of: of('prs') })
   }
   for (const r of ship) keys.push(...runKey(product, r))
 
   for (const x of sites.filter((y) => y.state !== 'up')) {
-    keys.push({ id: id(`site:${x.name}`), icon: 'globe', label: x.name, sub: x.state === 'down' ? 'down' : 'degraded', tone: SITE[x.state], kpis: x.state === 'down' ? ['sitesDown'] : [], action: url(x.url) })
+    keys.push({ id: id(`site:${x.name}`), icon: 'globe', label: x.name, sub: x.state === 'down' ? 'down' : 'degraded', tone: SITE[x.state], kpis: x.state === 'down' ? ['sitesDown'] : [], of: of('site', x.name) })
   }
   const up = sites.filter((y) => y.state === 'up')
-  if (up.length === 1) keys.push({ id: id(`site:${up[0].name}`), icon: 'globe', label: up[0].name, sub: 'up', tone: 'success', kpis: [], action: url(up[0].url) })
-  else if (up.length) keys.push({ id: id('sites'), icon: 'globe', label: plural(up.length, 'site'), value: String(up.length), sub: 'up', tone: 'success', kpis: [], action: null })
+  if (up.length === 1) keys.push({ id: id(`site:${up[0].name}`), icon: 'globe', label: up[0].name, sub: 'up', tone: 'success', kpis: [], of: of('site', up[0].name) })
+  else if (up.length) keys.push({ id: id('sites'), icon: 'globe', label: plural(up.length, 'site'), value: String(up.length), sub: 'up', tone: 'success', kpis: [], of: of('sites') })
 
   const open = s.open.find((g) => g.product === product)?.items.length ?? 0
-  if (open) keys.push({ id: id('open'), icon: 'layers', label: 'Open items', value: String(open), tone: 'neutral', kpis: [], action: null })
+  if (open) keys.push({ id: id('open'), icon: 'layers', label: 'Open items', value: String(open), tone: 'neutral', kpis: [], of: of('open') })
 
   return keys.sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone])
 }
 
 function runKey(product: string, r: ShipRow): Key[] {
   const id = `${product}:run:${r.repo}`
-  if (r.error) return [{ id, icon: 'rocket', label: r.repo, sub: 'GitHub unreadable', tone: 'danger', kpis: [], action: null }]
+  if (r.error) return [{ id, icon: 'rocket', label: r.repo, sub: 'GitHub unreadable', tone: 'danger', kpis: [], of: { product, part: 'run', ref: r.repo } }]
   if (!r.latestRun) return []
   const run = r.latestRun
   const word = { pass: 'CI passed', fail: 'CI failed', running: 'CI running' }[run.result]
-  return [{ id, icon: 'rocket', label: run.name, sub: word, tone: RUN[run.result], kpis: [], action: url(run.url) }]
+  return [{ id, icon: 'rocket', label: run.name, sub: word, tone: RUN[run.result], kpis: [], of: { product, part: 'run', ref: r.repo } }]
 }
 
 /** What a product key says under its name: the worst thing, in words. */
@@ -196,7 +202,7 @@ export function productRows(s: Snapshot): DeckRow[] {
       // A product whose keys are all neutral or green reads as green: nothing wrong.
       tone: keys.length && TONE_RANK[tone] >= TONE_RANK.neutral ? 'success' : tone,
       kpis: [],
-      action: null,
+      of: { product, part: 'all' },
       head: true
     }
     return { id: product, title: product, keys: [head, ...keys] }
@@ -227,7 +233,7 @@ export function botKeys(bots: OverviewBot[]): Key[] {
       sub: asks ? `${asks} waiting` : plural(b.workers.length, 'worker'),
       tone,
       kpis: [...(b.needsYou ? ['needs' as const] : []), ...(waiting ? ['waiting' as const] : [])],
-      action: nav(b.worktreeId, b.address)
+      of: { bot: b.name }
     }
   })
 }
@@ -242,6 +248,61 @@ export function highlighted(deck: Deck, kpi: KpiId | null): Set<string> {
   const all = [...deck.kpis, ...deck.rows.flatMap((r) => r.keys), ...deck.bots]
   return new Set(all.filter((k) => k.kpis.includes(kpi)).map((k) => k.id))
 }
+
+export const keyById = (deck: Deck, id: string | null): Key | null =>
+  (id && [...deck.kpis, ...deck.rows.flatMap((r) => r.keys), ...deck.bots].find((k) => k.id === id)) || null
+
+// ---- Details: the rows behind a key ----
+/** What a key's detail view lists, as the sidebar's own rows. A ShipRow's `latestRun` is null when the run is not part of it. */
+export type Detail = { needs: NeedRow[]; agents: AgentRow[]; ship: ShipRow[]; sites: SiteRow[]; tasks: TaskRow[]; flows: FlowRow[]; bots: OverviewBot[] }
+
+const noDetail = (): Detail => ({ needs: [], agents: [], ship: [], sites: [], tasks: [], flows: [], bots: [] })
+
+export function rowsBehind(of: Scope, s: Snapshot): Detail {
+  const d = noDetail()
+  const agents = s.office.flatMap((g) => g.items)
+  const prsWhere = (rows: ShipRow[], keep: (p: PrRow) => boolean) =>
+    rows.map((r) => ({ ...r, prs: r.prs.filter(keep), latestRun: null })).filter((r) => r.prs.length)
+  if ('kpi' in of) {
+    const k = of.kpi
+    if (k === 'needs') d.needs = s.needsYou
+    else if (k === 'prsFailing') d.ship = prsWhere(s.ship, prFailing)
+    else if (k === 'sitesDown') d.sites = s.sites.filter((x) => x.state === 'down')
+    else d.agents = agents.filter((a) => a.state === k)
+    return d
+  }
+  if ('bot' in of) {
+    d.bots = s.overview.filter((b) => b.name === of.bot)
+    d.needs = s.needsYou.filter((n) => n.from === of.bot)
+    d.tasks = s.open.flatMap((g) => g.items).filter((t) => t.via === of.bot)
+    return d
+  }
+  const { product, part, ref } = of
+  const mine = s.office.find((g) => g.product === product)?.items ?? []
+  const ship = s.ship.filter((r) => r.product === product)
+  const sites = s.sites.filter((x) => (siteGroup(x, s.projects) ?? SITES_ROW) === product)
+  const tasks = s.open.find((g) => g.product === product)?.items ?? []
+  const quiet = (p: PrRow) => !(p.checks === 'fail' || p.checks === 'pending' || p.review === 'changes')
+  switch (part) {
+    case 'all':
+      // The agents waiting on you are listed with the agents, not twice.
+      d.needs = s.needsYou.filter((n) => n.product === product && n.kind !== 'agent')
+      Object.assign(d, { agents: mine, ship, sites, tasks, flows: s.flows.find((g) => g.product === product)?.items ?? [] })
+      break
+    case 'idle': d.agents = mine.filter((a) => a.state === 'idle'); break
+    case 'prs': d.ship = prsWhere(ship, quiet); break
+    case 'sites': d.sites = sites.filter((x) => x.state === 'up'); break
+    case 'open': d.tasks = tasks; break
+    case 'need': d.needs = s.needsYou.filter((n) => n.key === ref); break
+    case 'agent': d.agents = mine.filter((a) => a.key === ref); break
+    case 'pr': d.ship = prsWhere(ship, (p) => p.url === ref); break
+    case 'site': d.sites = sites.filter((x) => x.name === ref); break
+    case 'run': d.ship = ship.filter((r) => r.repo === ref).map((r) => ({ ...r, prs: [] })); break
+  }
+  return d
+}
+
+export const isEmpty = (d: Detail) => Object.values(d).every((rows) => !rows.length)
 
 // ---- Keyboard ----
 export type Dir = 'left' | 'right' | 'up' | 'down'

@@ -1,6 +1,6 @@
 // The Dashboard's wall of keys, from invented data.
 import { assert, test } from 'orca/testing'
-import { botKeys, buildDeck, headLine, highlighted, kpiCounts, moveFocus, productRows, QUIET_ROW, SITES_ROW, worstTone, type Box } from './deck'
+import { botKeys, buildDeck, headLine, highlighted, isEmpty, keyById, kpiCounts, moveFocus, productRows, QUIET_ROW, rowsBehind, SITES_ROW, worstTone, type Box } from './deck'
 import type { AgentRow, PrRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
 import type { SiteRow } from './sites'
@@ -102,13 +102,11 @@ test('quiet things fold into one summary key per row', () => {
   assert.ok(labels.includes('Change 3|checks running'))
   assert.ok(labels.includes('Task a1|working'))
   assert.ok(labels.includes('Pick a name|Helper asks'))
-  // Summaries only show; leaves act.
-  assert.equal(alpha.find((k) => k.label === '2 PRs')!.action, null)
-  assert.deepEqual(alpha.find((k) => k.label === 'Change 3')!.action, { url: 'https://github.com/acme/x/pull/3' })
-  assert.deepEqual(alpha.find((k) => k.label === 'Task a1')!.action, { nav: { worktreeId: 'r::a1', address: 'term_a1' } })
-  // An empty CI url opens nothing.
+  // Summaries stand for what they fold; leaves for their one row.
+  assert.deepEqual(alpha.find((k) => k.label === '2 PRs')!.of, { product: 'Alpha', part: 'prs', ref: undefined })
+  assert.deepEqual(alpha.find((k) => k.label === 'Change 3')!.of, { product: 'Alpha', part: 'pr', ref: 'https://github.com/acme/x/pull/3' })
+  assert.deepEqual(alpha.find((k) => k.label === 'Task a1')!.of, { product: 'Alpha', part: 'agent', ref: 'a1' })
   const gamma = productRows(snap).find((r) => r.title === 'Gamma')!.keys
-  assert.equal(gamma.find((k) => k.sub === 'CI failed')!.action, null)
   assert.ok(gamma.some((k) => k.sub === 'changes asked' && k.tone === 'warning'))
   // A product with only quiet keys is green; one that reads nothing at all stays neutral.
   const quiet = productRows({ ...emptySnapshot(), office: [{ product: 'Q', items: [agent('q', 'idle')] }] })
@@ -139,7 +137,7 @@ test('bot keys: workers count, waiting count, colour by the worst worker', () =>
     ['Broken', '1', '1 worker', 'danger']
   ])
   assert.deepEqual(keys[1].kpis, ['needs', 'waiting'])
-  assert.deepEqual(keys[0].action, { nav: { worktreeId: 'bots::b', address: 'orca_session_id:b' } })
+  assert.deepEqual(keys[0].of, { bot: 'Calm' })
 })
 
 test('worst tone and the product line', () => {
@@ -172,4 +170,58 @@ test('products with nothing to show share one last row', () => {
     ['Epsilon', 'neutral', 'Nothing to show']
   ])
   assert.ok(rows.slice(0, -1).every((r) => r.keys.length > 1))
+})
+
+test('rows behind a total: the matching rows from every product', () => {
+  const deck = buildDeck(snap)
+  const behind = (id: string) => rowsBehind(keyById(deck, id)!.of, snap)
+  assert.deepEqual(behind('kpi:needs').needs.map((n) => n.key), ['item:i1', 'agent:b1'])
+  assert.deepEqual(behind('kpi:working').agents.map((a) => a.key), ['a1'])
+  assert.deepEqual(behind('kpi:errored').agents.map((a) => a.key), ['b2'])
+  const failing = behind('kpi:prsFailing')
+  assert.deepEqual(failing.ship.map((r) => [r.repo, r.prs.map((p) => p.number), r.latestRun]), [['acme/gamma', [4], null]])
+  assert.deepEqual(behind('kpi:sitesDown').sites.map((x) => x.name), ['Shop'])
+  assert.equal(keyById(deck, 'nope'), null)
+  assert.equal(keyById(deck, null), null)
+})
+
+test("rows behind a product key: its agents, items, PRs, CI, sites, open work and messages", () => {
+  const s: Snapshot = { ...snap, flows: [{ product: 'Alpha', items: [{ key: 'm1', from: 'a', to: 'b', type: 'status', subject: 'Hi', line: '', waiting: false, at: 1, worktreeId: null, address: null }] }] }
+  const d = rowsBehind(keyById(buildDeck(s), 'Alpha:head')!.of, s)
+  assert.deepEqual(d.agents.map((a) => a.key), ['a1', 'a2', 'a3'])
+  assert.deepEqual(d.needs.map((n) => n.key), ['item:i1'])
+  assert.deepEqual(d.ship.map((r) => [r.prs.length, r.latestRun?.result]), [[3, 'pass']])
+  assert.deepEqual(d.sites.map((x) => x.name), ['Docs', 'Blog'])
+  assert.deepEqual(d.tasks.map((t) => t.key), ['t1'])
+  assert.deepEqual(d.flows.map((f) => f.key), ['m1'])
+  // An agent waiting on you is an agent row, not a second needs-you row.
+  const beta = rowsBehind({ product: 'Beta', part: 'all' }, snap)
+  assert.deepEqual([beta.needs.length, beta.agents.length], [0, 2])
+  // Sites with no product belong to the Sites row.
+  assert.deepEqual(rowsBehind({ product: SITES_ROW, part: 'all' }, snap).sites.map((x) => x.name), ['Shop'])
+})
+
+test('rows behind a summary key are what it folded; behind a leaf, its one row', () => {
+  const alpha = productRows(snap).find((r) => r.title === 'Alpha')!.keys
+  const behind = (label: string) => rowsBehind(alpha.find((k) => k.label === label)!.of, snap)
+  assert.deepEqual(behind('2 agents').agents.map((a) => a.key), ['a2', 'a3'])
+  assert.deepEqual(behind('2 PRs').ship[0].prs.map((p) => p.number), [1, 2])
+  assert.deepEqual(behind('2 sites').sites.map((x) => x.name), ['Docs', 'Blog'])
+  assert.deepEqual(behind('Open items').tasks.map((t) => t.key), ['t1'])
+  assert.deepEqual(behind('Change 3').ship[0].prs.map((p) => p.number), [3])
+  assert.deepEqual(behind('Task a1').agents.map((a) => a.key), ['a1'])
+  assert.deepEqual(behind('Pick a name').needs.map((n) => n.key), ['item:i1'])
+  const run = behind('CI')
+  assert.deepEqual([run.ship[0].prs.length, run.ship[0].latestRun?.result], [0, 'pass'])
+  // A leaf whose row went away lists nothing.
+  assert.ok(isEmpty(rowsBehind({ product: 'Alpha', part: 'agent', ref: 'gone' }, snap)))
+})
+
+test('rows behind a bot key: the bot, the items it asks, its open work', () => {
+  const bot = { name: 'Helper', doing: 'Build', open: 1, needsYou: 1, lastSaid: 'Done.', worktreeId: null, address: null, workers: [], prs: [] }
+  const s: Snapshot = { ...snap, overview: [bot] }
+  const d = rowsBehind(keyById(buildDeck(s), 'bot:Helper')!.of, s)
+  assert.deepEqual(d.bots.map((b) => b.lastSaid), ['Done.'])
+  assert.deepEqual(d.needs.map((n) => n.key), ['item:i1'])
+  assert.deepEqual(d.tasks.map((t) => t.key), ['t1'])
 })

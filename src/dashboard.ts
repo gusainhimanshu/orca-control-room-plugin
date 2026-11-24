@@ -1,7 +1,9 @@
-// The Dashboard: a full-page wall of keys in an Orca editor tab. Read-only, like the sidebar: a key
-// shows a workspace or focuses a terminal, or opens a pull request, run or site in the browser (Orca
-// asks first). Nothing here answers anything. The keys come from src/deck.ts; this file only draws.
-import { buildDeck, highlighted, moveFocus, pulses, type Deck, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
+// The Dashboard: a full-page wall of keys in an Orca editor tab. A key opens a drawer of the rows
+// behind it on the same page; those rows act like the sidebar's: show a workspace or focus a terminal,
+// open a pull request, run or site in the browser (Orca asks first), and answer a decision gate only
+// after an inline confirm. The keys and rows come from src/deck.ts; this file only draws.
+import { buildDeck, highlighted, isEmpty, keyById, moveFocus, pulses, rowsBehind, type Deck, type Detail, type Dir, type Key, type KeyIcon, type KpiId } from './deck'
+import { MAX_RESOLUTION, type NeedRow } from './model'
 import { asSnapshot, type Snapshot } from './protocol'
 
 // Lucide outlines (ISC), the set Orca's own icon names come from.
@@ -74,8 +76,6 @@ h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--orca-mute
 .key:hover { border-color: var(--tone); }
 .key:active { transform: translateY(2px); box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--shade) 22%, transparent), 0 1px 2px -1px color-mix(in oklab, var(--shade) 45%, transparent); }
 .key:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 3px; }
-.key.still { cursor: default; }
-.key.still:active { transform: none; }
 .key .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
 .key svg { width: 22px; height: 22px; flex: none; color: var(--tone); }
 .key[data-tone="neutral"] svg { color: var(--orca-muted-foreground); }
@@ -94,6 +94,40 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
 @keyframes pulse { 50% { box-shadow: inset 0 -3px 0 color-mix(in oklab, var(--shade) 22%, transparent), 0 3px 6px -2px color-mix(in oklab, var(--shade) 45%, transparent), 0 0 30px 0 color-mix(in oklab, var(--tone) 55%, transparent); } }
 .key.pulse { animation: pulse 2.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .key, .key.pulse { animation: none; transition: none; } .key:active { transform: none; } }
+/* The detail drawer: beside the wall when wide, below it when narrow. */
+.layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) {
+  .layout.with-drawer { grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); }
+  .drawer { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; }
+}
+.drawer { margin-top: 16px; padding: 16px; border: 1px solid var(--orca-border); border-radius: 14px; background: var(--orca-card); color: var(--orca-card-foreground); }
+.drawer[hidden] { display: none; }
+.drawer .bar { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
+.drawer h2 { margin: 0; font-size: 15px; color: var(--orca-card-foreground); }
+.drawer .bar p { margin: 2px 0 0; font-size: 12px; color: var(--orca-muted-foreground); }
+.drawer .close { margin-left: auto; }
+.drawer h3 { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--orca-muted-foreground); }
+.drawer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.row { display: block; width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in oklab, var(--orca-border) 70%, transparent);
+  background: none; color: inherit; font: inherit; text-align: left; }
+button.row { cursor: pointer; }
+button.row:hover { border-color: var(--orca-border); background: color-mix(in oklab, var(--orca-card) 90%, var(--orca-foreground)); }
+.row:focus-visible, .drawer button:focus-visible, .drawer input:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 2px; }
+.row .t { display: block; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.row .m { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; font-size: 11.5px; color: var(--orca-muted-foreground); }
+.row .q { margin: 4px 0 0; font-size: 12.5px; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 550; border: 1px solid currentColor; }
+.pill[data-tone="neutral"] { color: var(--orca-muted-foreground); }
+.pill[data-tone="accent"] { color: var(--run); } .pill[data-tone="success"] { color: var(--ok); }
+.pill[data-tone="warning"] { color: var(--ask); } .pill[data-tone="danger"] { color: var(--bad); }
+.btn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--orca-border); background: var(--orca-background); color: var(--orca-foreground); cursor: pointer; }
+.btn.go { border-color: var(--run); color: var(--run); }
+.btn:disabled { opacity: .5; cursor: default; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.acts input { flex: 1 1 160px; min-width: 0; font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--orca-border); background: var(--orca-background); color: var(--orca-foreground); }
+.ask { margin-top: 8px; padding: 8px; border-radius: 8px; border: 1px solid var(--ask); }
+.said { font-size: 12px; margin: 8px 0 0; }
+.key.open { outline: 2px solid var(--orca-ring); outline-offset: 3px; }
 .empty { padding: 48px 0; max-width: 46ch; color: var(--orca-muted-foreground); font-size: 14px; line-height: 1.5; }
 .empty strong { display: block; color: var(--orca-foreground); font-size: 16px; margin-bottom: 4px; }
 `
@@ -105,13 +139,21 @@ let lit: KpiId | null = null
 /** Why the first reading has not arrived (the worker refused, or drawing failed), shown instead of waiting forever. */
 let loadError = ''
 const keysById = new Map<string, Key>()
+/** The key whose drawer is open. */
+let open: string | null = null
+/** What each drawer button does, by its data-act index; rebuilt with the drawer. */
+let acts: (() => void)[] = []
+// Answering a gate: typed drafts, the answer awaiting confirmation, how sending went.
+const drafts = new Map<string, string>()
+let pending: { key: string; text: string } | null = null
+let sending = false
+const outcome = new Map<string, { ok: boolean; text: string }>()
 
 function keyHtml(k: Key, extra = ''): string {
   keysById.set(k.id, k)
-  const still = !k.action && !k.kpis.length ? ' still' : ''
   const pulse = pulses(k) && k.head ? ' pulse' : ''
   const tip = [k.label, k.value, k.sub].filter(Boolean).join(' · ')
-  return `<button class="key ${extra}${k.head ? ' head' : ''}${still}${pulse}" data-id="${esc(k.id)}" data-tone="${k.tone}" title="${esc(tip)}" aria-label="${esc(tip)}">
+  return `<button class="key ${extra}${k.head ? ' head' : ''}${pulse}${open === k.id ? ' open' : ''}" data-id="${esc(k.id)}" data-tone="${k.tone}" title="${esc(tip)}. Press for details" aria-label="${esc(tip)}" aria-controls="drawer" aria-expanded="${open === k.id}">
     <span class="top">${icon(k.icon)}${k.value ? `<span class="value">${esc(k.value)}</span>` : ''}</span>
     <span><span class="label">${esc(k.label)}</span>${k.sub ? `<span class="sub">${esc(k.sub)}</span>` : ''}</span></button>`
 }
@@ -143,13 +185,161 @@ function render(): void {
   const rows = deck.rows.length
     ? deck.rows.map((r) => `<div class="keys" role="group" aria-label="${esc(r.title)}">${r.keys.map((k) => keyHtml(k)).join('')}</div>`).join('<div style="height:12px"></div>')
     : `<div class="empty"><strong>No products yet</strong>Products are your Orca projects. Agents, pull requests and sites show here once a project has any.</div>`
-  app.innerHTML = `
+  // A key that went away closes its drawer.
+  if (open && !keyById(deck, open)) open = null
+  const wall = `
     <section aria-label="Totals"><div class="keys">${deck.kpis.map((k) => keyHtml(k, 'kpi')).join('')}</div>
-      <p class="hint" id="hint">${lit ? 'Outlined: what counts toward it. Press it again or Esc to clear.' : 'Press a total to outline what counts toward it.'}</p></section>
+      <p class="hint" id="hint"></p></section>
     <section aria-label="Products"><h2>Products, worst first</h2>${rows}</section>
     ${deck.bots.length ? `<section aria-label="Bots"><h2>Bots</h2><div class="keys">${deck.bots.map((k) => keyHtml(k)).join('')}</div></section>` : ''}`
+  let layout = app.querySelector<HTMLElement>('.layout')
+  if (!layout) {
+    app.innerHTML = '<div class="layout"><div class="wall"></div><aside class="drawer" id="drawer" aria-label="Details" hidden></aside></div>'
+    layout = app.querySelector<HTMLElement>('.layout')!
+  }
+  layout.querySelector('.wall')!.innerHTML = wall
+  const drawer = layout.querySelector<HTMLElement>('.drawer')!
+  // Never redraw under someone typing an answer.
+  const inDrawer = drawer.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null
+  if (inDrawer?.tagName !== 'INPUT') {
+    drawDrawer(drawer)
+    // Keep focus on the same drawer control across a reading.
+    const again = inDrawer?.dataset.act ? drawer.querySelector<HTMLElement>(`[data-act="${inDrawer.dataset.act}"]`) : inDrawer?.id ? document.getElementById(inDrawer.id) : null
+    again?.focus({ preventScroll: true })
+  }
+  layout.classList.toggle('with-drawer', !!open)
   applyLit()
   if (focused) (app.querySelector(`[data-id="${CSS.escape(focused)}"]`) as HTMLElement | null)?.focus()
+}
+
+// ---- The drawer: the rows behind the open key ----
+type Word = readonly [string, string]
+const AGENT_WORD: Record<string, Word> = { working: ['Working', 'accent'], waiting: ['Waiting on you', 'warning'], errored: ['Errored', 'danger'], idle: ['Idle', 'neutral'], done: ['Done', 'success'] }
+const CHECK_WORD: Record<string, Word> = { pass: ['Checks pass', 'success'], fail: ['Checks fail', 'danger'], pending: ['Checks running', 'warning'], none: ['No checks', 'neutral'] }
+const REVIEW_WORD: Record<string, Word> = { approved: ['Approved', 'success'], changes: ['Changes asked', 'danger'], required: ['Review needed', 'warning'], none: ['No review', 'neutral'] }
+const SITE_WORD: Record<string, Word> = { up: ['Up', 'success'], degraded: ['Degraded', 'warning'], down: ['Down', 'danger'] }
+const RUN_WORD: Record<string, Word> = { pass: ['CI passed', 'success'], fail: ['CI failed', 'danger'], running: ['CI running', 'warning'] }
+const pill = ([word, tone]: Word) => `<span class="pill" data-tone="${tone}">${esc(word)}</span>`
+
+/** Registers what a drawer button does and returns its attribute. */
+const act = (fn: () => void) => `data-act="${acts.push(fn) - 1}"`
+const goTo = (worktreeId: string | null, address: string | null) => () => {
+  if (worktreeId) void orca.plugin.request('navigate', { worktreeId, address }).catch(() => undefined)
+}
+const openUrl = (u: string) => () => {
+  if (/^https?:\/\//i.test(u)) void orca.shell?.openExternal(u).catch(() => undefined)
+}
+/** A row: a button when it goes somewhere, else plain. */
+const row = (fn: (() => void) | null, title: string, meta: string, extra = '') =>
+  fn
+    ? `<li><button class="row" ${act(fn)}><span class="t">${esc(title)}</span><span class="m">${meta}</span></button>${extra}</li>`
+    : `<li><div class="row"><span class="t">${esc(title)}</span><span class="m">${meta}</span>${extra}</div></li>`
+const list = (title: string, items: string[]) => (items.length ? `<h3>${esc(title)}</h3><ul>${items.join('')}</ul>` : '')
+
+const plainLabel = (o: string) => o.replace(/ \(recommended\)$/, '')
+const openChatTip = (n: NeedRow) =>
+  `Opens ${n.from ?? 'the bot'}'s chats. Orca can't open one chat or answer for you from here: switch to ${n.chat ? `the '${n.chat}' chat` : 'the chat that owns this item'} and answer there.`
+
+function needHtml(n: NeedRow): string {
+  const answerable = n.kind === 'gate' && !!snap?.allowAnswer
+  const openChat = n.kind === 'item' && !!n.worktreeId
+  const asked = [n.question, ...n.decisions.filter((d) => d.prompt && d.prompt !== n.question).map((d) => d.prompt)].filter(Boolean)
+  const options = n.decisions.flatMap((d) => d.options)
+  let body = asked.map((q) => `<p class="q">${esc(q)}</p>`).join('')
+  if (!answerable && options.length) body += `<div class="m">${options.map((o) => pill([o, 'neutral'])).join('')}</div>`
+  if (answerable) {
+    const done = outcome.get(n.key)
+    body +=
+      pending?.key === n.key
+        ? `<div class="ask"><p class="q">Send '${esc(pending.text)}' to the coordinator?</p><div class="acts">
+            <button class="btn go" ${sending ? 'disabled' : ''} ${act(() => void confirmGate(n))}>Confirm</button>
+            <button class="btn" ${act(() => ((pending = null), redraw()))}>Cancel</button></div></div>`
+        : `<div class="acts">${options.map((o) => `<button class="btn" ${act(() => askGate(n.key, plainLabel(o)))}>${esc(o)}</button>`).join('')}</div>
+           <div class="acts"><input data-draft="${esc(n.key)}" aria-label="Answer: ${esc(n.title)}" placeholder="Or write a short answer" maxlength="${MAX_RESOLUTION}" value="${esc(drafts.get(n.key) ?? '')}">
+            <button class="btn" ${act(() => askGate(n.key, drafts.get(n.key) ?? ''))}>Send</button></div>`
+    if (done) body += `<p class="q" style="color:var(${done.ok ? '--ok' : '--bad'})">${esc(done.text)}</p>`
+  }
+  if (openChat) body += `<div class="acts"><button class="btn" title="${esc(openChatTip(n))}" ${act(goTo(n.worktreeId, n.address))}>Open chat to answer</button></div>`
+  const meta = esc(n.from ? `${n.from} · ${n.product}` : n.product)
+  // A row holding buttons cannot itself be one.
+  return row(answerable || openChat || !n.worktreeId ? null : goTo(n.worktreeId, n.address), n.title, meta, body)
+}
+
+function detailHtml(d: Detail): string {
+  const shipItems = d.ship.flatMap((r) => [
+    ...(r.latestRun ? [row(r.latestRun.url ? openUrl(r.latestRun.url) : null, r.latestRun.name, `${pill(RUN_WORD[r.latestRun.result])}${esc(r.repo)}`)] : []),
+    ...(r.error ? [row(null, r.repo, pill([r.error, 'warning']))] : []),
+    ...r.prs.map((p) => row(openUrl(p.url), `#${p.number} ${p.title}`, `${p.draft ? pill(['Draft', 'neutral']) : ''}${pill(CHECK_WORD[p.checks])}${pill(REVIEW_WORD[p.review])}`))
+  ])
+  return [
+    ...d.bots.map(
+      (b) =>
+        `<p class="said">Doing now: ${esc(b.doing)}</p><div class="m">${pill([b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`, b.needsYou ? 'warning' : 'neutral'])}</div>` +
+        (b.lastSaid ? `<p class="said">Last said: ${esc(b.lastSaid)}</p>` : '') +
+        list('Workers', b.workers.map((w) => row(w.worktreeId ? goTo(w.worktreeId, w.address) : null, w.label, pill(AGENT_WORD[w.state]))))
+    ),
+    list('Needs you', d.needs.map(needHtml)),
+    list('Agents', d.agents.map((a) => row(goTo(a.worktreeId, a.address), a.title, `${pill(AGENT_WORD[a.state])}${esc(a.workspace)}${a.since ? ` · ${ago(a.since)}` : ''}${a.detail ? ` · ${esc(a.detail)}` : ''}`))),
+    list('Pull requests and CI', shipItems),
+    list('Sites', d.sites.map((x) => row(openUrl(x.url), x.name, `${pill(SITE_WORD[x.state])}${esc(x.error ?? (x.status ? `HTTP ${x.status}` : ''))} · ${x.ms} ms`))),
+    list('Open work', d.tasks.map((t) => row(null, t.title, esc(`${t.status} · ${t.via}`)))),
+    list('Recent messages', d.flows.map((f) => row(f.worktreeId ? goTo(f.worktreeId, f.address) : null, f.subject || f.type, `${f.waiting ? pill(['Waiting on you', 'warning']) : ''}${pill([f.type, 'neutral'])}${esc(`${f.from} → ${f.to}`)}${f.line ? ` · ${esc(f.line)}` : ''}`)))
+  ].join('')
+}
+
+function drawDrawer(drawer: HTMLElement): void {
+  const k = snap ? keyById(deck, open) : null
+  acts = []
+  drawer.hidden = !k
+  if (!k || !snap) return void (drawer.innerHTML = '')
+  const d = rowsBehind(k.of, snap)
+  const title = k.id.startsWith('kpi:') ? `${k.label} · ${k.value}` : k.label
+  drawer.innerHTML = `<div class="bar"><div><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>${k.sub ? `<p>${esc(k.sub)}</p>` : ''}</div>
+    <button class="btn close" ${act(closeDrawer)} aria-label="Close details (Esc)">Close</button></div>
+    ${isEmpty(d) ? '<p class="said">Nothing behind this key right now.</p>' : detailHtml(d)}`
+}
+
+const redraw = () => {
+  const drawer = document.getElementById('drawer')
+  if (drawer) drawDrawer(drawer)
+}
+
+function askGate(key: string, text: string): void {
+  if (!text.trim()) return
+  pending = { key, text: text.trim() }
+  outcome.delete(key)
+  redraw()
+}
+
+async function confirmGate(n: NeedRow): Promise<void> {
+  if (sending || !pending) return
+  const text = pending.text
+  sending = true
+  redraw()
+  const r = await orca.plugin
+    .request('gate.resolve', { gateId: n.key.slice('gate:'.length), resolution: text })
+    .catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+  pending = null
+  sending = false
+  outcome.set(n.key, { ok: r.ok, text: r.ok ? `Sent '${text}'.` : `Not sent: ${r.error ?? 'unknown error'}` })
+  redraw()
+}
+
+function openDrawer(k: Key): void {
+  open = k.id
+  // A total also outlines what counts toward it.
+  lit = k.id.startsWith('kpi:') ? k.kpis[0] : null
+  render()
+  document.getElementById('drawer')?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  document.getElementById('drawer-title')?.focus({ preventScroll: true })
+}
+
+function closeDrawer(): void {
+  const was = open
+  open = null
+  lit = null
+  render()
+  if (was) (document.querySelector(`.key[data-id="${CSS.escape(was)}"]`) as HTMLElement | null)?.focus()
 }
 
 function applyLit(): void {
@@ -157,18 +347,12 @@ function applyLit(): void {
   document.body.classList.toggle('lit', !!lit)
   for (const el of Array.from(document.querySelectorAll<HTMLElement>('.key'))) el.classList.toggle('on', on.has(el.dataset.id ?? ''))
   const hint = document.getElementById('hint')
-  if (hint) hint.textContent = lit ? 'Outlined: what counts toward it. Press it again or Esc to clear.' : 'Press a total to outline what counts toward it.'
+  if (hint) hint.textContent = lit ? 'Outlined: what counts toward it. Esc closes the details.' : 'Press any key for what is behind it.'
 }
 
 function press(k: Key): void {
-  if (k.id.startsWith('kpi:')) {
-    lit = lit === k.kpis[0] ? null : k.kpis[0]
-    return applyLit()
-  }
-  const a = k.action
-  if (!a) return
-  if ('nav' in a) void orca.plugin.request('navigate', a.nav).catch(() => undefined)
-  else void orca.shell?.openExternal(a.url).catch(() => undefined)
+  if (open === k.id) closeDrawer()
+  else openDrawer(k)
 }
 
 function take(next: Snapshot): void {
@@ -203,17 +387,27 @@ function start(): void {
   render()
 
   document.addEventListener('click', (e) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>('.key')
+    const target = e.target as HTMLElement
+    const button = target.closest<HTMLElement>('[data-act]')
+    if (button) return acts[Number(button.dataset.act)]?.()
+    const el = target.closest<HTMLElement>('.key')
     const k = el && keysById.get(el.dataset.id ?? '')
     if (k) press(k)
   })
+  document.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement
+    if (el.dataset.draft) drafts.set(el.dataset.draft, el.value)
+  })
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && lit) {
-      lit = null
-      return applyLit()
+    const el = e.target as HTMLElement
+    if (e.key === 'Enter' && el.dataset?.draft) return askGate(el.dataset.draft, (el as HTMLInputElement).value)
+    if (e.key === 'Escape' && (open || lit)) {
+      e.preventDefault()
+      return closeDrawer()
     }
     const dir = DIRS[e.key]
-    if (!dir) return
+    // Arrows move between keys; inside the drawer they stay the browser's.
+    if (!dir || el.closest?.('.drawer')) return
     const keys = Array.from(document.querySelectorAll<HTMLElement>('.key'))
     if (!keys.length) return
     e.preventDefault()
