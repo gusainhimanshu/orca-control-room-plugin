@@ -4,6 +4,7 @@ import { activeOnly, botKeys, buildDeck, DAY_MS, isActive, headLine, highlighted
 import type { AgentRow, PrRow } from './model'
 import { emptySnapshot, type Snapshot } from './protocol'
 import type { SiteRow } from './sites'
+import { detailHtml, gateState, type Env } from './rows'
 
 const agent = (key: string, state: AgentRow['state']): AgentRow => ({
   key,
@@ -249,4 +250,17 @@ test('the Dashboard shows only active projects; Needs you still counts every que
   assert.deepEqual(rowsBehind({ kpi: 'needs' }, activeOnly(s, now).view).needs.map((n) => n.key), ['item:i1', 'agent:b1'])
   // Off (0, as an older snapshot reads) hides nothing.
   assert.equal(buildDeck({ ...s, activeDays: 0 }, now).hidden, 0)
+})
+
+test("a bot's drawer opens with 'Open <bot>'s home', which shows its home workspace; no home, no button", () => {
+  const navigated: unknown[] = []
+  const env: Env = { snap, acts: [], gate: gateState(), navigate: (w, a) => navigated.push([w, a]), openUrl: () => undefined, resolveGate: async () => ({ ok: true }), redraw: () => undefined }
+  const bot = { name: 'Helper', doing: 'Build', open: 0, needsYou: 0, lastSaid: '', worktreeId: null, address: null, workers: [], prs: [] }
+  const html = detailHtml(env, { ...rowsBehind({ bot: 'x' }, snap), bots: [{ ...bot, home: 'folder:home-h' }] })
+  assert.ok(html.indexOf("Open Helper&#39;s home") < html.indexOf('Doing now'))
+  assert.match(html, /title="[^"]*last/)
+  env.acts[0]()
+  assert.deepEqual(navigated, [['folder:home-h', null]])
+  env.acts = []
+  assert.ok(!detailHtml(env, { ...rowsBehind({ bot: 'x' }, snap), bots: [bot] }).includes('home'))
 })

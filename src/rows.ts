@@ -119,12 +119,18 @@ export const flowHtml = (env: Env, f: Detail['flows'][number]) =>
   row(env, f.worktreeId ? goTo(env, f.worktreeId, f.address) : null, f.subject || f.type, `${f.waiting ? pill(['Waiting on you', 'warning']) : ''}${pill([f.type, 'neutral'])}${esc(`${f.from} → ${f.to}`)}${f.line ? ` · ${esc(f.line)}` : ''}`)
 export const workerHtml = (env: Env, w: Detail['bots'][number]['workers'][number]) => row(env, w.worktreeId ? goTo(env, w.worktreeId, w.address) : null, w.label, pill(AGENT_WORD[w.state]))
 
+/** Orca can't switch to one bot chat from a plugin (bot chats have no terminal), so the home shows the chat open there last. */
+export const homeTip = (bot: string) => `Shows ${bot}'s home workspace in Orca. Orca opens the chat that was open there last; pick Home in its chat list for the Home Chat.`
+export const homeHtml = (env: Env, b: Detail['bots'][number]) =>
+  b.home ? `<div class="acts"><button class="btn" title="${esc(homeTip(b.name))}" ${act(env, goTo(env, b.home, null))}>Open ${esc(b.name)}'s home</button></div>` : ''
+
 /** The drawer's body: every kind of row behind one key. */
 export function detailHtml(env: Env, d: Detail): string {
   const shipItems = d.ship.flatMap((r) => [...(r.latestRun ? [runHtml(env, r)] : []), ...(r.error ? [row(env, null, r.repo, pill([r.error, 'warning']))] : []), ...r.prs.map((p) => prHtml(env, p))])
   return [
     ...d.bots.map(
       (b) =>
+        homeHtml(env, b) +
         `<p class="said">Doing now: ${esc(b.doing)}</p><div class="m">${pill([b.needsYou ? `${b.open} open · ${b.needsYou} need you` : `${b.open} open`, b.needsYou ? 'warning' : 'neutral'])}</div>` +
         (b.lastSaid ? `<p class="said">Last said: ${esc(b.lastSaid)}</p>` : '') +
         list('Workers', b.workers.map((w) => workerHtml(env, w)))

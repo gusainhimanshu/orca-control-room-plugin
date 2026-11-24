@@ -15,7 +15,7 @@ export type RawAgent = {
   lastAssistantMessage?: string | null
   mainAgent?: { outcome?: string } | null
 }
-export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; displayName?: string; lastActivityAt?: number; agents?: RawAgent[] }
+export type RawWorktree = { worktreeId: string; repoId?: string; repo?: string; displayName?: string; lastActivityAt?: number; agents?: RawAgent[]; bot?: string; botHome?: boolean }
 export type RawRun = { id: string; objective?: string; legacy?: boolean }
 export type RawTask = { id: string; status?: string; title?: string; dispatchId?: string }
 export type RawGate = { id: string; taskId?: string; question?: string; options?: unknown; status?: string; createdAt?: number }
@@ -154,6 +154,11 @@ export function lastActivity(worktrees: RawWorktree[], products: Map<string, str
     if (w.lastActivityAt && w.lastActivityAt > (out[product] ?? 0)) out[product] = w.lastActivityAt
   }
   return out
+}
+
+/** Each bot's home: the folder workspace (~/.orca/bots/<bot>) `worktree ps` marks `botHome`, by bot name. */
+export function botHomes(worktrees: RawWorktree[]): Map<string, string> {
+  return new Map(worktrees.filter((w) => w.botHome && w.bot).map((w) => [w.bot!, w.worktreeId]))
 }
 
 /** "owner/name" for each GitHub-backed project. */
