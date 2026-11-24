@@ -32,7 +32,7 @@ import {
 } from 'orca'
 import { MAX_RESOLUTION, running, type AgentRow, type AgentState, type Checks, type FlowRow, type Group, type NeedRow, type PrRow, type Review, type ShipRow, type TaskRow } from './model'
 import { layoutOverview, type OverviewEdge, type OverviewBot, type OverviewNode, type OverviewWorker } from './overview'
-import { buildDeck, isEmpty, keyById, rowsBehind, type Key } from './deck'
+import { buildDeck, isEmpty, keyById, pulses, QUIET_ROW, rowsBehind, type Key } from './deck'
 import { asSnapshot, emptySnapshot, type Snapshot } from './protocol'
 import { siteGroup, type SiteRow, type SiteState } from './sites'
 
@@ -751,7 +751,7 @@ function KeyButton({ k }: { k: Key }) {
   return (
     <Button
       size="sm"
-      variant={k.head ? 'solid' : 'outline'}
+      variant={k.head && pulses(k) ? 'solid' : 'outline'}
       tone={k.tone}
       icon={k.icon}
       tooltip={`${[k.label, k.value, k.sub].filter(Boolean).join(' · ')}. Press for details.`}
@@ -766,15 +766,15 @@ function Wall({ s }: { s: Snapshot }) {
   const deck = buildDeck(s)
   return (
     <Stack gap="sm">
-      <Grid columns={3} gap="xs">
+      <Grid columns={2} gap="xs">
         {deck.kpis.map((k) => (
           <KeyButton k={k} />
         ))}
       </Grid>
       {deck.rows.length ? (
         deck.rows.map((r) => (
-          <Box border={r.keys[0].head && r.keys.length > 1 && (r.keys[0].tone === 'danger' || r.keys[0].tone === 'warning') ? r.keys[0].tone : true} radius="md" padding="xs" gap="xs">
-            {r.keys.length > 1 && r.keys[0].head ? (
+          <Box border={r.id !== QUIET_ROW && pulses(r.keys[0]) ? r.keys[0].tone : true} radius="md" padding="xs" gap="xs">
+            {r.id !== QUIET_ROW ? (
               <Row gap="xs" align="center">
                 <KeyButton k={r.keys[0]} />
                 <Text size="xs" muted truncate>
@@ -787,7 +787,7 @@ function Wall({ s }: { s: Snapshot }) {
               </Text>
             )}
             <Row gap="xs" wrap>
-              {(r.keys.length > 1 && r.keys[0].head ? r.keys.slice(1) : r.keys).map((k) => (
+              {(r.id !== QUIET_ROW ? r.keys.slice(1) : r.keys).map((k) => (
                 <KeyButton k={k} />
               ))}
             </Row>
