@@ -1,7 +1,8 @@
 // The worker reads Orca and GitHub, and pings the sites the user lists, on a fixed clock, builds
 // the view model and pushes it to open panels, the status bar and (for stuck agents and sites that
 // go down or come back) desktop notifications. It never writes to an agent, terminal or bot. Its
-// actions: focusing a terminal, showing a workspace, and resolving a decision gate the owner
+// actions: focusing a terminal, showing a workspace, opening the Dashboard tab (its one .crdeck file in
+// the workspace), and resolving a decision gate the owner
 // confirmed in the panel (only while "Allow answering from the panel" is on).
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
@@ -34,6 +35,7 @@ import {
   type RunData
 } from './model'
 import { buildOverview } from './overview'
+import { openDashboard } from './fullpage'
 import { resolveTool } from './platform'
 import { emptySnapshot, type Snapshot } from './protocol'
 import { nextSiteRows, parseSites, ping, siteAlarms, siteNotice } from './sites'
@@ -275,6 +277,11 @@ export default function activate(orca: OrcaWorkerApi): void {
       return { ok: false, error: message(e) }
     }
   })
+
+  // `workspaceId` is for testing against a named workspace; the panel's button sends none (the focused one).
+  orca.panels.handle('dashboard.open', async (input) =>
+    openDashboard((m, p) => orca.host.call(m as 'workspace.list', p as undefined), typeof input?.workspaceId === 'string' ? input.workspaceId : undefined)
+  )
 
   stop = () => {
     stopped = true

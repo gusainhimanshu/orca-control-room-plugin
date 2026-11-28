@@ -30,8 +30,10 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   cards, *Working* → the agents working, *PRs failing* → the failing PRs); a product key lists
   that product's agents, items, PRs with their checks, latest CI, sites and recent messages; a bot
   key its workers, items and the last thing it said; a summary key (*4 agents*) the rows it folded.
-  Arrow keys move between keys. **Open full page** (0.11.0) shows, in place under the header, where
-  to open the full-page Dashboard: **+ > Control Room dashboard** (below); **Got it** hides it.
+  Arrow keys move between keys. **Open full page** (0.12.0) opens the full-page Dashboard (below)
+  as a tab of the workspace you are in, in one click. Pressed again, it brings that tab back
+  rather than open a second one. Where it cannot (a workspace it cannot write to, or one on
+  another host), one line under the header says so.
 - **Details**: the tabs below, drawn as HTML on the same page (until 0.8.0 they were a separate
   *Control Room · Details* panel), with the same rows and actions as the drawer.
 
@@ -88,8 +90,8 @@ and Right move between the tabs, Up and Down between the rows and group headers.
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
-  as a tab of the workspace you are in (0.11.0): **+ > Control Room dashboard** in the tab bar, or
-  *Control Room dashboard* in the command palette. **Open full page** in the panel says where. It reads the same snapshot as the sidebar and is read-only the same way.
+  as a tab of the workspace you are in: **Open full page** in the panel (0.12.0), or
+  **+ > Control Room dashboard** in the tab bar, or *Control Room dashboard* in the command palette. It reads the same snapshot as the sidebar and is read-only the same way.
   - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
     A zero stays grey. Pressing one opens its details (below) and also outlines the keys that count
     toward it, dimming the rest.
@@ -123,10 +125,16 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   - Only product keys glow and pulse, and only when red or amber; the pulse is off under
     *reduce motion*. Colours follow Orca's light or dark theme.
   - Where it lives: Orca plugins have no main-area panel; a custom editor is the one full-page
-    surface, it opens on a file, and a plugin may open only a file inside the workspace. So the
-    Dashboard is an untitled `.crdeck` file from Orca's + menu, which our editor draws. **While the tab
-    is open, Orca keeps an empty `untitled.crdeck` in that workspace's folder** (it deletes it when the
-    tab closes), so git sees it: add `*.crdeck` to your global git ignore (this repository ignores it).
+    surface, it opens on a file, and a plugin may open only a file inside the workspace. So
+    **Open full page writes one file, `.control-room/dashboard.crdeck`, in the workspace you are in**
+    (the folder too, the first time) and opens it; our editor draws the Dashboard and ignores what the
+    file says. Nothing else is written, and `.gitignore`, `.git/info/exclude` and git config are never
+    touched. **The file stays when the tab closes**: Orca tells a plugin nothing when an editor tab
+    closes, so it is reused on the next press. Delete the folder whenever you like.
+    The + menu entry opens an untitled `.crdeck` instead: **while that tab is open, Orca keeps an empty
+    `untitled.crdeck` in the workspace's folder** (it deletes it when the tab closes).
+    Either way git would see a `.crdeck` file: add `*.crdeck` to your global git ignore (this
+    repository ignores it).
     Until 0.10.2 it opened a file in the plugin's folder, which switched the window to a separate
     *Control Room* workspace; that folder workspace can be removed from the sidebar.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
@@ -193,10 +201,10 @@ in its view; the rest of the panel keeps working.
 
 | Capability | Why |
 | --- | --- |
-| `trusted-worker` | a Node worker runs the `orca` and `gh` commands above: reads, plus `gate-resolve` after you confirm (no extra Orca capability is needed for it) |
-| `workspace:read` | hear workspace created/removed events to refresh early |
+| `trusted-worker` | a Node worker runs the `orca` and `gh` commands above: reads, plus `gate-resolve` after you confirm (no extra Orca capability is needed for it); and on **Open full page** writes `.control-room/dashboard.crdeck` in the workspace you are in |
+| `workspace:read` | hear workspace created/removed events to refresh early; find the workspace you are in and its folder for **Open full page** |
 | `agent:read` | hear agent status changes to refresh early |
-| `workspace:write` | **only** `terminal.focus` and `workspace.open`, so a click can take you to an agent. Nothing renames, hides or runs commands |
+| `workspace:write` | **only** `terminal.focus` and `workspace.open`, so a click can take you to an agent, and `editor.open` for the Dashboard tab. Nothing renames, hides or runs commands |
 | `notifications:show` | the stuck-agent alarm and site down / back notifications |
 | `storage:own` | remember which alarms were already shown, and the panel's view, tab and open groups |
 | `settings:own` | read the seven settings below |
