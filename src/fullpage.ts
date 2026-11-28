@@ -27,8 +27,15 @@ export async function openDashboard(call: Call): Promise<{ ok: boolean; error?: 
     if (!existsSync(dir)) mkdirSync(dir)
     // lstat, not stat: a .control-room that is a link (say, committed in a clone) is refused, never followed.
     if (!lstatSync(dir).isDirectory()) return { ok: false, error: REFUSED }
-    // `wx` never writes through a link, not even a dangling one.
-    if (!existsSync(file)) writeFileSync(file, TEXT, { flag: 'wx' })
+    // Written only when nothing, not even a dangling link, is there; then it must be a plain file.
+    let st
+    try {
+      st = lstatSync(file)
+    } catch {
+      writeFileSync(file, TEXT, { flag: 'wx' })
+      st = lstatSync(file)
+    }
+    if (!st.isFile()) return { ok: false, error: REFUSED }
     await call('editor.open', { workspaceId: ws.id, path: DASHBOARD_FILE })
     return { ok: true }
   } catch {

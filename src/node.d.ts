@@ -11,7 +11,7 @@ declare module 'node:fs' {
   export function existsSync(path: string): boolean
   export function readFileSync(path: URL | string, encoding: 'utf8'): string
   export function writeFileSync(path: string, data: string, options?: { flag?: string }): void
-  export function lstatSync(path: string): { isDirectory(): boolean }
+  export function lstatSync(path: string): { isDirectory(): boolean; isFile(): boolean }
   export function symlinkSync(target: string, path: string, type?: 'dir' | 'file' | 'junction'): void
   export function mkdirSync(path: string): void
   export function mkdtempSync(prefix: string): string
