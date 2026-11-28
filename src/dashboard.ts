@@ -98,6 +98,8 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
 /* The sidebar panel (0.8.0): the same wall at 320-400 px; an open drawer takes the wall's place. */
 .full { display: inline-flex; align-items: center; gap: 6px; }
 .full svg { width: 14px; height: 14px; }
+.full-hint { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--orca-border); border-radius: 8px; background: var(--orca-card); font-size: 12px; }
+.full-hint:focus-visible, #full-hint-close:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 2px; }
 .close .back { display: none; }
 @media (max-width: 520px) {
   :root { --key: 88px; --gap: 8px; }
@@ -403,6 +405,22 @@ function detailsArrow(el: HTMLElement, dir: Dir): boolean {
   return !!next
 }
 
+/**
+ * The header. The sidebar's one entry: Dashboard and Details side by side, then Open full page. A plugin
+ * can open an editor tab only on a file inside the workspace (Orca refuses any other path), so the full
+ * page is Orca's own + menu entry (manifest `newFiles`) and the button only says where to find it.
+ */
+export function headerHtml(panel: boolean): string {
+  const title = !panel
+    ? `<h1>${icon('gauge')}Control Room</h1>`
+    : `<div class="seg" role="group" aria-label="View"><button class="btn" id="v-dashboard" aria-pressed="true" title="The wall of keys">Dashboard</button><button class="btn" id="v-details" aria-pressed="false" title="Overview, Queue, Office, Flows and Ship as lists">Details</button></div>
+       <button class="btn full" id="full" aria-expanded="false" aria-controls="full-hint" title="Where to open the same wall, full width, as a tab of this workspace">${icon('layers')}Open full page</button>`
+  const hint = !panel
+    ? ''
+    : `<div class="full-hint" id="full-hint" role="note" tabindex="-1" hidden><span>Open it as a tab of this workspace: <b>+ &gt; Control Room dashboard</b> in the tab bar (or <i>Control Room dashboard</i> in the command palette).</span> <button class="btn" id="full-hint-close">Got it</button></div>`
+  return `<header>${title}<span class="meta" id="meta" aria-live="polite"></span>${hint}</header>`
+}
+
 /** Draws the wall: `panel` for the sidebar panel (src/wall.ts), else the full-page editor (src/dashboard-editor.ts). */
 export function start(panel: boolean): void {
   isPanel = panel
@@ -410,13 +428,17 @@ export function start(panel: boolean): void {
   style.textContent = STYLE
   document.head.append(style)
   document.body.classList.toggle('panel', panel)
-  // The sidebar's one entry: Dashboard and Details side by side, then Open full page.
-  const title = !panel
-    ? `<h1>${icon('gauge')}Control Room</h1>`
-    : `<div class="seg" role="group" aria-label="View"><button class="btn" id="v-dashboard" aria-pressed="true" title="The wall of keys">Dashboard</button><button class="btn" id="v-details" aria-pressed="false" title="Overview, Queue, Office, Flows and Ship as lists">Details</button></div>
-       <button class="btn full" id="full" title="The same wall, full width in an editor tab">${icon('layers')}Open full page</button>`
-  document.body.innerHTML = `<header>${title}<span class="meta" id="meta" aria-live="polite"></span></header><main id="app"></main>`
-  document.getElementById('full')?.addEventListener('click', () => void orca.plugin.request('dashboard.open').catch(() => undefined))
+  document.body.innerHTML = `${headerHtml(panel)}<main id="app"></main>`
+  const full = document.getElementById('full')
+  const hint = document.getElementById('full-hint')
+  const showHint = (on: boolean) => {
+    if (!full || !hint) return
+    hint.hidden = !on
+    full.setAttribute('aria-expanded', String(on))
+    ;(on ? hint : full).focus()
+  }
+  full?.addEventListener('click', () => showHint(!!hint?.hidden))
+  document.getElementById('full-hint-close')?.addEventListener('click', () => showHint(false))
   document.getElementById('v-dashboard')?.addEventListener('click', () => setView('dashboard'))
   document.getElementById('v-details')?.addEventListener('click', () => setView('details'))
   render()
