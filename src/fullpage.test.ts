@@ -169,3 +169,16 @@ test('a refusal is cleared, then said, in separate turns, so a reader announces 
   await settle()
   assert.equal(h.text(), '', 'a success leaves the line empty')
 })
+
+test('a refusal still waiting to be said is dropped when a press within 150 ms succeeds', async () => {
+  const h = fakeHeader()
+  const answers = [REFUSAL, { ok: true }]
+  let asked = 0
+  wireFull(h.doc, async () => answers[asked++])
+  h.press()
+  await new Promise((r) => setTimeout(r, 0))
+  h.press()
+  await settle()
+  assert.equal(asked, 2)
+  assert.equal(h.text(), '', 'no stale refusal after the success')
+})

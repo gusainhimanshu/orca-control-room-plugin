@@ -422,13 +422,15 @@ export function wireFull(doc: Pick<Document, 'getElementById'>, open: () => Prom
   const full = doc.getElementById('full')
   const msg = doc.getElementById('full-msg')
   if (!full || !msg) return
+  let pending: ReturnType<typeof setTimeout> | undefined
   full.addEventListener('click', () => {
     // Cleared now and said a moment later, so the same refusal twice is still a change a reader announces.
+    clearTimeout(pending)
     msg.textContent = ''
     void open()
       .catch(() => ({ ok: false, error: 'Could not open the full page in this workspace.' }))
       .then((r) => {
-        if (!r.ok) setTimeout(() => (msg.textContent = r.error ?? ''), 150)
+        if (!r.ok) pending = setTimeout(() => (msg.textContent = r.error ?? ''), 150)
       })
   })
 }
