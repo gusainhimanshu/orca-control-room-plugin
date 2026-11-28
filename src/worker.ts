@@ -278,10 +278,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
   })
 
-  // `workspaceId` is for testing against a named workspace; the panel's button sends none (the focused one).
-  orca.panels.handle('dashboard.open', async (input) =>
-    openDashboard((m, p) => orca.host.call(m as 'workspace.list', p as undefined), typeof input?.workspaceId === 'string' ? input.workspaceId : undefined)
-  )
+  orca.panels.handle('dashboard.open', async () => openDashboard((m, p) => orca.host.call(m as 'workspace.list', p as undefined)))
 
   stop = () => {
     stopped = true

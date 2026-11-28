@@ -100,7 +100,8 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
 /* The sidebar panel (0.8.0): the same wall at 320-400 px; an open drawer takes the wall's place. */
 .full { display: inline-flex; align-items: center; gap: 6px; }
 .full svg { width: 14px; height: 14px; }
-.full-msg { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--orca-muted-foreground); }
+.full-msg { margin: 0; font-size: 12px; color: var(--orca-muted-foreground); }
+.full-msg:not(:empty) { margin-bottom: 8px; }
 .close .back { display: none; }
 @media (max-width: 520px) {
   :root { --key: 88px; --gap: 8px; }
@@ -411,8 +412,9 @@ export function headerHtml(panel: boolean): string {
     ? `<h1>${icon('gauge')}Control Room</h1>`
     : `<div class="seg" role="group" aria-label="View"><button class="btn" id="v-dashboard" aria-pressed="true" title="The wall of keys">Dashboard</button><button class="btn" id="v-details" aria-pressed="false" title="Overview, Queue, Office, Flows and Ship as lists">Details</button></div>
        <button class="btn full" id="full" title="The same wall, full width, as a tab of this workspace">${icon('layers')}Open full page</button>`
-  const msg = panel ? `<p class="full-msg" id="full-msg" role="status" hidden></p>` : ''
-  return `<header>${title}<span class="meta" id="meta" aria-live="polite"></span>${msg}</header>`
+  // Always in the page, never hidden: a live region that appears with its text is often not read out.
+  const msg = panel ? `<p class="full-msg" id="full-msg" role="status"></p>` : ''
+  return `<header>${title}<span class="meta" id="meta" aria-live="polite"></span></header>${msg}`
 }
 
 /** "Open full page" asks the worker to open the Dashboard tab; a refusal shows one line under the header. */
@@ -420,14 +422,15 @@ export function wireFull(doc: Pick<Document, 'getElementById'>, open: () => Prom
   const full = doc.getElementById('full')
   const msg = doc.getElementById('full-msg')
   if (!full || !msg) return
-  full.addEventListener('click', () =>
+  full.addEventListener('click', () => {
+    // Cleared now and said a moment later, so the same refusal twice is still a change a reader announces.
+    msg.textContent = ''
     void open()
       .catch(() => ({ ok: false, error: 'Could not open the full page in this workspace.' }))
       .then((r) => {
-        msg.textContent = r.ok ? '' : r.error ?? ''
-        msg.hidden = r.ok
+        if (!r.ok) setTimeout(() => (msg.textContent = r.error ?? ''), 150)
       })
-  )
+  })
 }
 
 /** Draws the wall: `panel` for the sidebar panel (src/wall.ts), else the full-page editor (src/dashboard-editor.ts). */

@@ -65,8 +65,8 @@ declare module 'orca' {
     'snapshot.get': { output: Snapshot }
     /** Navigation only: focus an agent's terminal, else show its workspace. */
     'navigate': { input: { worktreeId: string; address?: string | null }; output: { ok: boolean } }
-    /** Open the Dashboard as a tab of the focused workspace (or the one named): writes its one .crdeck file there. */
-    'dashboard.open': { input: { workspaceId?: string } | null | undefined; output: { ok: boolean; error?: string } }
+    /** Open the Dashboard as a tab of the focused workspace: writes its one .crdeck file there. */
+    'dashboard.open': { output: { ok: boolean; error?: string } }
     /** The one write: resolve a decision gate the owner confirmed in the panel. */
     'gate.resolve': { input: { gateId: string; resolution: string }; output: { ok: boolean; error?: string } }
   }

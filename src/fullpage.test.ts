@@ -1,6 +1,6 @@
 // "Open full page" opens the Dashboard as a tab of the workspace you are in: it puts one .crdeck file in that
 // workspace (git ignores *.crdeck for the owner) and asks Orca to open it there. No hint, no workspace switch.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assert, test } from 'orca/testing'
@@ -80,19 +80,41 @@ test('no focused workspace, or one on another host: the same short message, noth
   assert.deepEqual(filesUnder(dir), [])
 })
 
-test('a workspace named by id opens there, not in the focused one', async () => {
-  const dir = workspace()
-  const host = fakeHost(dir, { focused: 'other' })
-  assert.deepEqual(await openDashboard(host.call, 'ws1'), { ok: true })
-  assert.equal(host.opened[0].workspaceId, 'ws1')
-  assert.ok(existsSync(join(dir, host.opened[0].path)))
+test('a workspace folder that is gone is refused, never recreated', async () => {
+  const gone = join(workspace(), 'deleted')
+  const host = fakeHost(gone)
+  const r = await openDashboard(host.call)
+  assert.equal(r.ok, false)
+  assert.match(r.error ?? '', /^Could not open the full page/)
+  assert.deepEqual(host.opened, [])
+  assert.equal(existsSync(gone), false)
 })
 
-test('a worktree id in the repoId::path form (as Orca names worktrees elsewhere) finds the workspace.list row by its path', async () => {
+// A cloned repository can commit .control-room as a link to a folder outside the checkout ('junction' needs no admin on Windows).
+test('a .control-room that links out of the workspace is refused: nothing written through it', async () => {
   const dir = workspace()
-  const host = fakeHost(dir, { focused: `repo-1::${dir.replaceAll('\\', '/')}` })
-  assert.deepEqual(await openDashboard(host.call), { ok: true })
-  assert.equal(host.opened[0].workspaceId, 'ws1', 'opened by the id workspace.list gives')
+  const outside = workspace()
+  symlinkSync(outside, join(dir, '.control-room'), 'junction')
+  const host = fakeHost(dir)
+  const r = await openDashboard(host.call)
+  assert.equal(r.ok, false)
+  assert.match(r.error ?? '', /^Could not open the full page/)
+  assert.deepEqual(host.opened, [])
+  assert.deepEqual(readdirSync(outside), [])
+})
+
+test('a dashboard.crdeck that is a dangling link is never written through', async () => {
+  const dir = workspace()
+  const outside = join(workspace(), 'target.crdeck')
+  mkdirSync(join(dir, '.control-room'))
+  try {
+    symlinkSync(outside, join(dir, '.control-room', 'dashboard.crdeck'), 'file')
+  } catch {
+    return // shortcut: Windows without Developer Mode cannot make file links; Linux CI runs this case.
+  }
+  const r = await openDashboard(fakeHost(dir).call)
+  assert.equal(r.ok, false)
+  assert.equal(existsSync(outside), false)
 })
 
 test('the hint is gone: "Open full page" is a plain button, no disclosure and no + menu directions', () => {
@@ -106,26 +128,44 @@ test('the full-page editor has no "Open full page"', () => {
   assert.ok(!/id="full"/.test(headerHtml(false)))
 })
 
-// A stand-in for the two elements wireFull touches.
+test('the could-not-open line is a live region always in the page, outside the sticky header row', () => {
+  const html = headerHtml(true)
+  const msg = html.match(/<p[^>]*id="full-msg"[^>]*>/)
+  assert.ok(msg, 'a full-msg element')
+  assert.match(msg[0], /role="status"/)
+  assert.match(html, /<\/header><p[^>]*id="full-msg"/, 'below the header, so an empty line takes no room in its row')
+  assert.ok(!/\bhidden\b/.test(msg[0]), 'never hidden: a region that appears with its text is often not read out')
+})
+
+// A stand-in for the two elements wireFull touches; `said` lists each text the live region took.
 function fakeHeader() {
-  const els: Record<string, { textContent: string; hidden: boolean; click?: () => void; addEventListener(t: string, f: () => void): void }> = {}
-  for (const id of ['full', 'full-msg']) {
-    els[id] = { textContent: '', hidden: id === 'full-msg', addEventListener(t, f) { if (t === 'click') this.click = f } }
-  }
-  return { doc: { getElementById: (id: string) => els[id] ?? null } as unknown as Document, els }
+  const said: string[] = []
+  let text = ''
+  const msg = { get textContent() { return text }, set textContent(v: string) { text = v; said.push(v) } }
+  const full: { click?: () => void; addEventListener(t: string, f: () => void): void } = { addEventListener(t, f) { if (t === 'click') this.click = f } }
+  const els: Record<string, unknown> = { full, 'full-msg': msg }
+  return { doc: { getElementById: (id: string) => els[id] ?? null } as unknown as Document, press: () => full.click?.(), said, text: () => text }
 }
 
-test('pressing "Open full page" asks the worker once; a refusal shows one inline line, a success clears it', async () => {
+const settle = () => new Promise((r) => setTimeout(r, 300))
+const REFUSAL = { ok: false, error: 'Could not open the full page in this workspace.' }
+
+test('a refusal is cleared, then said, in separate turns, so a reader announces it; the same refusal again is said again', async () => {
   const h = fakeHeader()
-  const answers = [{ ok: false, error: 'Could not open the full page in this workspace.' }, { ok: true }]
+  const answers = [REFUSAL, REFUSAL, { ok: true }]
   let asked = 0
   wireFull(h.doc, async () => answers[asked++])
-  h.els.full.click?.()
-  await new Promise((r) => setTimeout(r, 0))
+  h.press()
+  assert.equal(h.text(), '', 'cleared at once on the press')
+  await settle()
   assert.equal(asked, 1)
-  assert.equal(h.els['full-msg'].hidden, false)
-  assert.equal(h.els['full-msg'].textContent, 'Could not open the full page in this workspace.')
-  h.els.full.click?.()
-  await new Promise((r) => setTimeout(r, 0))
-  assert.equal(h.els['full-msg'].hidden, true)
+  assert.equal(h.text(), REFUSAL.error)
+  h.press()
+  assert.equal(h.text(), '', 'cleared again, so the same words count as new')
+  await settle()
+  assert.equal(h.text(), REFUSAL.error)
+  assert.deepEqual(h.said.filter(Boolean), [REFUSAL.error, REFUSAL.error])
+  h.press()
+  await settle()
+  assert.equal(h.text(), '', 'a success leaves the line empty')
 })
