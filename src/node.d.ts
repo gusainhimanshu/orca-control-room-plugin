@@ -9,11 +9,9 @@ declare module 'node:child_process' {
 }
 declare module 'node:fs' {
   export function existsSync(path: string): boolean
+  export function readFileSync(path: URL | string, encoding: 'utf8'): string
 }
 declare module 'node:path' {
   export const win32: { join(...parts: string[]): string }
 }
 declare const process: { platform: string; env: Record<string, string | undefined> }
-declare module 'node:url' {
-  export function fileURLToPath(url: URL | string): string
-}

@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "control-room",
   "name": "Control Room",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "Control room: who hands work to whom, what waits on you (decision gates answered after a confirm), every agent by product, each product's pull requests and CI, pings of the sites you list, and a full-page Dashboard of keys.",
   "engines": {
     "orca": ">=1.4.259"
@@ -27,8 +27,8 @@
         "entry": "src/dashboard-editor.ts"
       }
     ],
-    "commands": [
-      { "id": "dashboard.open", "title": "Control Room: Open dashboard" }
+    "newFiles": [
+      { "id": "dashboard", "title": "Control Room dashboard", "extension": ".crdeck" }
     ],
     "statusBarItems": [
       {

@@ -30,7 +30,8 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   cards, *Working* → the agents working, *PRs failing* → the failing PRs); a product key lists
   that product's agents, items, PRs with their checks, latest CI, sites and recent messages; a bot
   key its workers, items and the last thing it said; a summary key (*4 agents*) the rows it folded.
-  Arrow keys move between keys. **Open full page** opens the full-page Dashboard.
+  Arrow keys move between keys. **Open full page** (0.11.0) shows, in place under the header, where
+  to open the full-page Dashboard: **+ > Control Room dashboard** (below); **Got it** hides it.
 - **Details**: the tabs below, drawn as HTML on the same page (until 0.8.0 they were a separate
   *Control Room · Details* panel), with the same rows and actions as the drawer.
 
@@ -87,8 +88,8 @@ and Right move between the tabs, Up and Down between the rows and group headers.
 
   When nothing in a group runs, only the header and its summary show (*2 idle*).
 - **Dashboard** (0.7.0): the whole control room on one full-width page, as a wall of keys. Open it
-  with **Open full page** in the *Control Room* panel or *Control Room: Open dashboard* in the
-  command palette. It reads the same snapshot as the sidebar and is read-only the same way.
+  as a tab of the workspace you are in (0.11.0): **+ > Control Room dashboard** in the tab bar, or
+  *Control Room dashboard* in the command palette. **Open full page** in the panel says where. It reads the same snapshot as the sidebar and is read-only the same way.
   - Top row, the totals: *Needs you*, *Working*, *Waiting*, *Errored*, *PRs failing*, *Sites down*.
     A zero stays grey. Pressing one opens its details (below) and also outlines the keys that count
     toward it, dimming the rest.
@@ -122,10 +123,12 @@ and Right move between the tabs, Up and Down between the rows and group headers.
   - Only product keys glow and pulse, and only when red or amber; the pulse is off under
     *reduce motion*. Colours follow Orca's light or dark theme.
   - Where it lives: Orca plugins have no main-area panel; a custom editor is the one full-page
-    surface, and it opens on a file. So the plugin ships an empty `Control Room/Dashboard.crdeck`
-    and opens it with `orca plugin open <plugin> --editor <that file>`. **The first time, Orca adds
-    the plugin's `Control Room` folder as a folder workspace** (it holds only that file); you can
-    hide it from the sidebar. Nothing is ever written to it.
+    surface, it opens on a file, and a plugin may open only a file inside the workspace. So the
+    Dashboard is an untitled `.crdeck` file from Orca's + menu, which our editor draws. **While the tab
+    is open, Orca keeps an empty `untitled.crdeck` in that workspace's folder** (it deletes it when the
+    tab closes), so git sees it: add `*.crdeck` to your global git ignore (this repository ignores it).
+    Until 0.10.2 it opened a file in the plugin's folder, which switched the window to a separate
+    *Control Room* workspace; that folder workspace can be removed from the sidebar.
 - **Stuck-agent alarm**: one desktop notification per event when an agent waits on you or idles
   past the threshold, or errors; and one when a site goes down, and one when it comes back.
   Already-announced events are remembered in plugin storage.
@@ -134,7 +137,7 @@ and Right move between the tabs, Up and Down between the rows and group headers.
 ## Where the data comes from
 
 Only a fixed allow-list of commands, run with argument arrays (never a shell), see
-`src/sources.ts`. All are reads but two: `orca plugin open` only shows the Dashboard tab, and `gate-resolve` is the one write:
+`src/sources.ts`. All are reads but `gate-resolve`, the one write:
 
 | Command | Used for |
 | --- | --- |
@@ -148,8 +151,6 @@ Only a fixed allow-list of commands, run with argument arrays (never a shell), s
 | `orca orchestration gate-list --run <id> --json` | decision gates waiting on you |
 | `orca orchestration worker-list --json` | which product a task or Dispatch works in |
 | `orca orchestration inbox --limit 40 --full --json` | the Flows view: recent messages across every mailbox and when each was sent (only a body's first line is kept, cut to 120 characters) |
-| `orca plugin list --json` | this plugin's key, to open its Dashboard |
-| `orca plugin open <plugin> --editor <Dashboard.crdeck>` | shows the Dashboard tab (changes only what Orca shows) |
 | `orca orchestration gate-resolve --id <gate> --resolution <text> --json` | **the one write**: only when you confirm an answer to a decision gate (below) |
 
 A bot item's product comes from what it links: a pull request's workspace or repo, or a Dispatch's
