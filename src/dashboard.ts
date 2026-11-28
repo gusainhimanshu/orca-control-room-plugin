@@ -28,7 +28,9 @@ const ICONS: Record<KeyIcon | 'gauge', string> = {
 const icon = (name: KeyIcon | 'gauge') =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
 
-const STYLE = `
+export const STYLE = `
+/* Author display rules (.drawer, .full-hint: flex) beat the browser's own [hidden]; this puts it back for all. */
+[hidden] { display: none !important; }
 :root {
   --ok: #15803d; --run: #1d4ed8; --ask: #b45309; --bad: #b91c1c;
   --key: clamp(96px, 7.4vw, 128px); --gap: 12px;
@@ -129,7 +131,6 @@ body.lit .key.kpi.on { outline-color: var(--orca-ring); }
   .drawer { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; }
 }
 .drawer { margin-top: 16px; padding: 16px; border: 1px solid var(--orca-border); border-radius: 14px; background: var(--orca-card); color: var(--orca-card-foreground); }
-.drawer[hidden] { display: none; }
 .drawer .bar { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; }
 .drawer h2 { margin: 0; font-size: 15px; color: var(--orca-card-foreground); }
 .drawer .bar p { margin: 2px 0 0; font-size: 12px; color: var(--orca-muted-foreground); }
@@ -421,6 +422,20 @@ export function headerHtml(panel: boolean): string {
   return `<header>${title}<span class="meta" id="meta" aria-live="polite"></span>${hint}</header>`
 }
 
+/** "Open full page" shows and hides its hint, moving focus to the hint and back. */
+export function wireFullHint(doc: Pick<Document, 'getElementById'>): void {
+  const full = doc.getElementById('full')
+  const hint = doc.getElementById('full-hint')
+  if (!full || !hint) return
+  const showHint = (on: boolean) => {
+    hint.hidden = !on
+    full.setAttribute('aria-expanded', String(on))
+    ;(on ? hint : full).focus()
+  }
+  full.addEventListener('click', () => showHint(hint.hidden))
+  doc.getElementById('full-hint-close')?.addEventListener('click', () => showHint(false))
+}
+
 /** Draws the wall: `panel` for the sidebar panel (src/wall.ts), else the full-page editor (src/dashboard-editor.ts). */
 export function start(panel: boolean): void {
   isPanel = panel
@@ -429,16 +444,7 @@ export function start(panel: boolean): void {
   document.head.append(style)
   document.body.classList.toggle('panel', panel)
   document.body.innerHTML = `${headerHtml(panel)}<main id="app"></main>`
-  const full = document.getElementById('full')
-  const hint = document.getElementById('full-hint')
-  const showHint = (on: boolean) => {
-    if (!full || !hint) return
-    hint.hidden = !on
-    full.setAttribute('aria-expanded', String(on))
-    ;(on ? hint : full).focus()
-  }
-  full?.addEventListener('click', () => showHint(!!hint?.hidden))
-  document.getElementById('full-hint-close')?.addEventListener('click', () => showHint(false))
+  wireFullHint(document)
   document.getElementById('v-dashboard')?.addEventListener('click', () => setView('dashboard'))
   document.getElementById('v-details')?.addEventListener('click', () => setView('details'))
   render()
